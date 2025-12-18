@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path"
 	"regexp"
 	"strings"
@@ -12,43 +13,43 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-var moduleVerRe = regexp.MustCompile(`^v\d+$`)
-var ErrConstraintUnique = errors.New("package already exists")
+var (
+	moduleVerRe         = regexp.MustCompile(`^v\d+$`)
+	ErrConstraintUnique = errors.New("package already exists")
+	ErrNotFound         = errors.New("package not found in the registry")
+)
 
 func Add(url, name, version string, iflag, force bool, queries *data.Queries) error {
-
 	url = normalizeURL(url)
-
 	if name == "" {
 		name = getAlias(url)
 	}
 
-	var err error
-
-	if force {
-		args := data.UpdatePackageByNameParams{
-			Url:     url,
-			Name:    name,
-			Version: sql.NullString{Valid: true, String: version},
-		}
-		_, err = queries.UpdatePackageByName(context.Background(), args)
-
-	} else {
-		a := &data.AddPackageWithVersionParams{
-			Name:    name,
-			Url:     url,
-			Version: sql.NullString{Valid: true, String: version},
-		}
-
-		_, err = queries.AddPackageWithVersion(context.Background(), *a)
-
+	addParams := data.AddPackageWithVersionParams{
+		Name:    name,
+		Url:     url,
+		Version: sql.NullString{Valid: true, String: version},
 	}
+
+	_, err := queries.AddPackageWithVersion(context.Background(), addParams)
 
 	if err != nil {
 		if isUniqueConstraintErr(err) {
-			return ErrConstraintUnique
+			if force {
+				updateParams := data.UpdatePackageByNameParams{
+					Url:     url,
+					Name:    name,
+					Version: sql.NullString{Valid: true, String: version},
+				}
+				if _, err := queries.UpdatePackageByName(context.Background(), updateParams); err != nil {
+					return fmt.Errorf("failed to force update: %w", err)
+				}
+			} else {
+				return ErrConstraintUnique
+			}
+		} else {
+			return err
 		}
-		return err
 	}
 
 	if iflag {
@@ -63,7 +64,6 @@ func isUniqueConstraintErr(err error) bool {
 	if errors.As(err, &sqliteErr) {
 		return sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique
 	}
-
 	return false
 }
 
