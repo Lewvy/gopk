@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
+
+var PkgExp = regexp.MustCompile(`^v\d+$`)
 
 func Add(args []string, db *data.Queries) error {
 	var alias, url string
@@ -21,21 +24,29 @@ func Add(args []string, db *data.Queries) error {
 		alias = args[1]
 	}
 	if alias == "" {
-		alias = path.Base(url)
+		base := path.Base(url)
+
+		for PkgExp.MatchString(base) {
+			url = strings.TrimSuffix(url, "/"+base)
+			base = path.Base(url)
+			fmt.Printf("url: %s, base: %s\n", url, base)
+		}
+		alias = base
+
 		if alias == "." || alias == "/" {
 			alias = url
 		}
 	}
+
 	a := &data.AddPackageWithoutVersionParams{
 		Name: alias,
 		Url:  url,
 	}
 
-	p, err := db.AddPackageWithoutVersion(context.Background(), *a)
+	_, err := db.AddPackageWithoutVersion(context.Background(), *a)
 	if err != nil {
 		return err
 	}
-	fmt.Println(p)
 
 	return nil
 }

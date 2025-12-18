@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/joho/godotenv"
 	migrations "github.com/lewvy/gopk/sql"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pressly/goose/v3"
@@ -33,12 +32,6 @@ func InitDB() (*sql.DB, error) {
 
 	goose.SetBaseFS(migrations.FS)
 	if os.Getenv("DEBUG") == "true" {
-
-		err := godotenv.Load()
-		if err != nil {
-			return nil, errors.New("error loading env")
-		}
-
 	} else {
 		goose.SetLogger(log.New(io.Discard, "", 0))
 	}
