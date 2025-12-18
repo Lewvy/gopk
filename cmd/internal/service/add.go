@@ -3,16 +3,19 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path"
 	"regexp"
 	"strings"
 
 	"github.com/lewvy/gopk/cmd/internal/data"
+	"github.com/mattn/go-sqlite3"
 )
 
 var moduleVerRe = regexp.MustCompile(`^v\d+$`)
+var ErrConstraintUnique = errors.New("package already exists")
 
-func Add(url, name, version string, iflag bool, queries *data.Queries) error {
+func Add(url, name, version string, iflag, force bool, queries *data.Queries) error {
 
 	url = normalizeURL(url)
 
@@ -21,13 +24,15 @@ func Add(url, name, version string, iflag bool, queries *data.Queries) error {
 	}
 
 	var err error
-	if version == "" {
-		a := &data.AddPackageWithoutVersionParams{
-			Name: name,
-			Url:  url,
-		}
 
-		_, err = queries.AddPackageWithoutVersion(context.Background(), *a)
+	if force {
+		args := data.UpdatePackageByNameParams{
+			Url:     url,
+			Name:    name,
+			Version: sql.NullString{Valid: true, String: version},
+		}
+		_, err = queries.UpdatePackageByName(context.Background(), args)
+
 	} else {
 		a := &data.AddPackageWithVersionParams{
 			Name:    name,
@@ -36,8 +41,13 @@ func Add(url, name, version string, iflag bool, queries *data.Queries) error {
 		}
 
 		_, err = queries.AddPackageWithVersion(context.Background(), *a)
+
 	}
+
 	if err != nil {
+		if isUniqueConstraintErr(err) {
+			return ErrConstraintUnique
+		}
 		return err
 	}
 
@@ -46,6 +56,15 @@ func Add(url, name, version string, iflag bool, queries *data.Queries) error {
 	}
 
 	return nil
+}
+
+func isUniqueConstraintErr(err error) bool {
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique
+	}
+
+	return false
 }
 
 func getAlias(u string) string {
