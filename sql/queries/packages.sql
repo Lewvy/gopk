@@ -1,11 +1,3 @@
--- name: AddPackageWithoutVersion :one
-INSERT into packages (
-	name, url
-)
-VALUES (
-	?, ?
-) RETURNING *;
-
 -- name: AddPackageWithVersion :one
 INSERT into packages (name, url, version) VALUES (
 	?, ?, ?
@@ -14,8 +6,18 @@ INSERT into packages (name, url, version) VALUES (
 -- name: GetIDByName :one
 select id from packages where name = ?;
 
+
+-- name: UpdatePackageByName :one
+UPDATE packages
+set url = ?, version = ?
+where name = ?
+RETURNING *;
+
 -- name: GetPackageURLByName :one
-select url from packages where name = ?;
+UPDATE packages
+SET last_used = CURRENT_TIMESTAMP, freq = freq + 1
+WHERE name = ?
+RETURNING url;
 
 -- name: UpdatePackage :one
 UPDATE packages
@@ -23,7 +25,17 @@ set name = ?, url = ?, version = ?
 where id = ?
 RETURNING *;
 
--- name: GetPackgeByID :one
+-- name: ListPackagesByLastUsed :many
+SELECT * FROM packages
+ORDER BY last_used DESC
+LIMIT ?;
+
+-- name: ListPackagesByFrequency :many
+SELECT * FROM packages
+ORDER BY freq DESC
+LIMIT ?;
+
+-- name: GetPackageByID :one
 select * from packages where id = ?;
 
 -- name: GetPackageByName :one
