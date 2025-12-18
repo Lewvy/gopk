@@ -16,10 +16,6 @@ import (
 )
 
 func InitDB() (*sql.DB, error) {
-	err := godotenv.Load()
-	if err != nil {
-		return nil, errors.New("error loading env")
-	}
 
 	home_dir, err1 := os.UserHomeDir()
 
@@ -37,6 +33,12 @@ func InitDB() (*sql.DB, error) {
 
 	goose.SetBaseFS(migrations.FS)
 	if os.Getenv("DEBUG") == "true" {
+
+		err := godotenv.Load()
+		if err != nil {
+			return nil, errors.New("error loading env")
+		}
+
 	} else {
 		goose.SetLogger(log.New(io.Discard, "", 0))
 	}
