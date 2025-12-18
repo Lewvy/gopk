@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/lewvy/gopk/internal/data"
+	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
 func Get(pkgs []string, db *data.Queries) error {

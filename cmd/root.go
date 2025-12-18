@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/lewvy/gopk/cmd/internal/config"
-	"github.com/lewvy/gopk/internal/data"
+	"github.com/lewvy/gopk/cmd/internal/data"
+	"github.com/lewvy/gopk/config"
 	"github.com/spf13/cobra"
 )
 

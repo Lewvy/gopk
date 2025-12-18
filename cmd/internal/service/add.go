@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/lewvy/gopk/internal/data"
+	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
 func Add(args []string, db *data.Queries) error {
