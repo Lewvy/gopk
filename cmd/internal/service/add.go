@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"database/sql"
 	"path"
 	"regexp"
 	"strings"
@@ -10,43 +10,61 @@ import (
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
-var PkgExp = regexp.MustCompile(`^v\d+$`)
+var moduleVerRe = regexp.MustCompile(`^v\d+$`)
 
-func Add(args []string, db *data.Queries) error {
-	var alias, url string
+func Add(url, name, version string, iflag bool, queries *data.Queries) error {
 
-	url = args[0]
+	url = normalizeURL(url)
 
-	url, _ = strings.CutPrefix(url, "https://")
-	url, _ = strings.CutPrefix(url, "http://")
-
-	if len(args) > 1 {
-		alias = args[1]
+	if name == "" {
+		name = getAlias(url)
 	}
-	if alias == "" {
-		base := path.Base(url)
 
-		for PkgExp.MatchString(base) {
-			url = strings.TrimSuffix(url, "/"+base)
-			base = path.Base(url)
-			fmt.Printf("url: %s, base: %s\n", url, base)
+	var err error
+	if version == "" {
+		a := &data.AddPackageWithoutVersionParams{
+			Name: name,
+			Url:  url,
 		}
-		alias = base
 
-		if alias == "." || alias == "/" {
-			alias = url
+		_, err = queries.AddPackageWithoutVersion(context.Background(), *a)
+	} else {
+		a := &data.AddPackageWithVersionParams{
+			Name:    name,
+			Url:     url,
+			Version: sql.NullString{Valid: true, String: version},
 		}
-	}
 
-	a := &data.AddPackageWithoutVersionParams{
-		Name: alias,
-		Url:  url,
+		_, err = queries.AddPackageWithVersion(context.Background(), *a)
 	}
-
-	_, err := db.AddPackageWithoutVersion(context.Background(), *a)
 	if err != nil {
 		return err
 	}
 
+	if iflag {
+		return Get([]string{name}, queries)
+	}
+
 	return nil
+}
+
+func getAlias(u string) string {
+	name := path.Base(u)
+
+	for moduleVerRe.MatchString(name) {
+		u = strings.TrimSuffix(u, "/"+name)
+		name = path.Base(u)
+	}
+
+	if name == "." || name == "/" {
+		return u
+	}
+
+	return name
+}
+
+func normalizeURL(u string) string {
+	u, _ = strings.CutPrefix(u, "https://")
+	u, _ = strings.CutPrefix(u, "http://")
+	return u
 }

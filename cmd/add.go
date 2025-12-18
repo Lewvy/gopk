@@ -7,24 +7,28 @@ import (
 
 // addCmd represents the add command
 var addCmd = &cobra.Command{
-	Use:   "add <url> [alias]",
+	Use:   "add <url> [flags]",
 	Short: "add a package",
 	Long:  `add a package and store it in the config directory`,
-	Args:  cobra.RangeArgs(1, 2),
-	RunE: func(cmd *cobra.Command, args []string) error {
 
-		c := cmd.Flag("n")
-		var alias string
-		if c != nil {
-			alias = c.Value.String()
-			args = append(args, alias)
-		}
-		return service.Add(args, queries)
+	Args: cobra.RangeArgs(1, 1),
+
+	RunE: func(cmd *cobra.Command, args []string) error {
+		url := args[0]
+
+		name, _ := cmd.Flags().GetString("name")
+		version, _ := cmd.Flags().GetString("version")
+		install, _ := cmd.Flags().GetBool("install")
+
+		return service.Add(url, name, version, install, queries)
 	},
 }
 
 func init() {
-	addCmd.Flags().String("n", "", "alias for a url")
+	addCmd.Flags().StringP("name", "n", "", "add package name")
+	addCmd.Flags().StringP("version", "v", "latest", "add package version (used for go installs)")
+	addCmd.Flags().BoolP("install", "i", false, "install the package")
+
 	rootCmd.AddCommand(addCmd)
 
 	// Here you will define your flags and configuration settings.
