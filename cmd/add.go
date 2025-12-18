@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/lewvy/gopk/cmd/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -25,8 +27,13 @@ the added package in the current Go module.`,
 		name, _ := cmd.Flags().GetString("name")
 		version, _ := cmd.Flags().GetString("version")
 		install, _ := cmd.Flags().GetBool("install")
+		force, _ := cmd.Flags().GetBool("force")
 
-		return service.Add(url, name, version, install, queries)
+		err := service.Add(url, name, version, install, force, queries)
+		if err == service.ErrConstraintUnique {
+			return fmt.Errorf("package %s already exists. use --force to overwrite", name)
+		}
+		return nil
 	},
 }
 
@@ -34,6 +41,7 @@ func init() {
 	addCmd.Flags().StringP("name", "n", "", "add package name")
 	addCmd.Flags().StringP("version", "v", "latest", "add package version (used for go installs)")
 	addCmd.Flags().BoolP("install", "i", false, "install the package")
+	addCmd.Flags().BoolP("force", "f", false, "force add to registry")
 
 	rootCmd.AddCommand(addCmd)
 

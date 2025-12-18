@@ -13,6 +13,8 @@ type Package struct {
 	Name      string
 	Url       string
 	Version   sql.NullString
+	Freq      sql.NullInt64
 	CreatedAt sql.NullTime
 	UpdatedAt sql.NullTime
+	LastUsed  sql.NullTime
 }

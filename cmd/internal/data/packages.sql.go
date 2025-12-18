@@ -13,7 +13,7 @@ import (
 const addPackageWithVersion = `-- name: AddPackageWithVersion :one
 INSERT into packages (name, url, version) VALUES (
 	?, ?, ?
-	) RETURNING id, name, url, version, created_at, updated_at
+	) RETURNING id, name, url, version, freq, created_at, updated_at, last_used
 `
 
 type AddPackageWithVersionParams struct {
@@ -30,36 +30,10 @@ func (q *Queries) AddPackageWithVersion(ctx context.Context, arg AddPackageWithV
 		&i.Name,
 		&i.Url,
 		&i.Version,
+		&i.Freq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const addPackageWithoutVersion = `-- name: AddPackageWithoutVersion :one
-INSERT into packages (
-	name, url
-)
-VALUES (
-	?, ?
-) RETURNING id, name, url, version, created_at, updated_at
-`
-
-type AddPackageWithoutVersionParams struct {
-	Name string
-	Url  string
-}
-
-func (q *Queries) AddPackageWithoutVersion(ctx context.Context, arg AddPackageWithoutVersionParams) (Package, error) {
-	row := q.db.QueryRowContext(ctx, addPackageWithoutVersion, arg.Name, arg.Url)
-	var i Package
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Url,
-		&i.Version,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.LastUsed,
 	)
 	return i, err
 }
@@ -75,8 +49,28 @@ func (q *Queries) GetIDByName(ctx context.Context, name string) (int64, error) {
 	return id, err
 }
 
+const getPackageByID = `-- name: GetPackageByID :one
+select id, name, url, version, freq, created_at, updated_at, last_used from packages where id = ?
+`
+
+func (q *Queries) GetPackageByID(ctx context.Context, id int64) (Package, error) {
+	row := q.db.QueryRowContext(ctx, getPackageByID, id)
+	var i Package
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.Version,
+		&i.Freq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastUsed,
+	)
+	return i, err
+}
+
 const getPackageByName = `-- name: GetPackageByName :one
-select id, name, url, version, created_at, updated_at from packages where name = ?
+select id, name, url, version, freq, created_at, updated_at, last_used from packages where name = ?
 `
 
 func (q *Queries) GetPackageByName(ctx context.Context, name string) (Package, error) {
@@ -87,14 +81,19 @@ func (q *Queries) GetPackageByName(ctx context.Context, name string) (Package, e
 		&i.Name,
 		&i.Url,
 		&i.Version,
+		&i.Freq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastUsed,
 	)
 	return i, err
 }
 
 const getPackageURLByName = `-- name: GetPackageURLByName :one
-select url from packages where name = ?
+UPDATE packages
+SET last_used = CURRENT_TIMESTAMP, freq = freq + 1
+WHERE name = ?
+RETURNING url
 `
 
 func (q *Queries) GetPackageURLByName(ctx context.Context, name string) (string, error) {
@@ -104,29 +103,87 @@ func (q *Queries) GetPackageURLByName(ctx context.Context, name string) (string,
 	return url, err
 }
 
-const getPackgeByID = `-- name: GetPackgeByID :one
-select id, name, url, version, created_at, updated_at from packages where id = ?
+const listPackagesByFrequency = `-- name: ListPackagesByFrequency :many
+SELECT id, name, url, version, freq, created_at, updated_at, last_used FROM packages
+ORDER BY freq DESC
+LIMIT ?
 `
 
-func (q *Queries) GetPackgeByID(ctx context.Context, id int64) (Package, error) {
-	row := q.db.QueryRowContext(ctx, getPackgeByID, id)
-	var i Package
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Url,
-		&i.Version,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+func (q *Queries) ListPackagesByFrequency(ctx context.Context, limit int64) ([]Package, error) {
+	rows, err := q.db.QueryContext(ctx, listPackagesByFrequency, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Package
+	for rows.Next() {
+		var i Package
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.Version,
+			&i.Freq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastUsed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPackagesByLastUsed = `-- name: ListPackagesByLastUsed :many
+SELECT id, name, url, version, freq, created_at, updated_at, last_used FROM packages
+ORDER BY last_used DESC
+LIMIT ?
+`
+
+func (q *Queries) ListPackagesByLastUsed(ctx context.Context, limit int64) ([]Package, error) {
+	rows, err := q.db.QueryContext(ctx, listPackagesByLastUsed, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Package
+	for rows.Next() {
+		var i Package
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.Version,
+			&i.Freq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastUsed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updatePackage = `-- name: UpdatePackage :one
 UPDATE packages
 set name = ?, url = ?, version = ?
 where id = ?
-RETURNING id, name, url, version, created_at, updated_at
+RETURNING id, name, url, version, freq, created_at, updated_at, last_used
 `
 
 type UpdatePackageParams struct {
@@ -149,8 +206,39 @@ func (q *Queries) UpdatePackage(ctx context.Context, arg UpdatePackageParams) (P
 		&i.Name,
 		&i.Url,
 		&i.Version,
+		&i.Freq,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastUsed,
+	)
+	return i, err
+}
+
+const updatePackageByName = `-- name: UpdatePackageByName :one
+UPDATE packages
+set url = ?, version = ?
+where name = ?
+RETURNING id, name, url, version, freq, created_at, updated_at, last_used
+`
+
+type UpdatePackageByNameParams struct {
+	Url     string
+	Version sql.NullString
+	Name    string
+}
+
+func (q *Queries) UpdatePackageByName(ctx context.Context, arg UpdatePackageByNameParams) (Package, error) {
+	row := q.db.QueryRowContext(ctx, updatePackageByName, arg.Url, arg.Version, arg.Name)
+	var i Package
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.Version,
+		&i.Freq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastUsed,
 	)
 	return i, err
 }
