@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -8,16 +5,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Use:   "get <alias> [alias...]",
+	Short: "Install one or more saved packages into the current module",
+	Long: `Install Go modules by alias from your gopk registry.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+The get command resolves aliases stored in gopk and runs 'go get'
+for each selected package in the current Go module.
+
+This command is project-specific and requires an existing go.mod file.
+It does not modify your gopk registry.`,
+
+	Args: cobra.MinimumNArgs(1),
+
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return service.Get(args, queries)
 	},
@@ -25,14 +25,4 @@ to quickly create a Cobra application.`,
 
 func init() {
 	rootCmd.AddCommand(getCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// getCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// getCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

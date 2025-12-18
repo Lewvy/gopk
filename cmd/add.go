@@ -5,13 +5,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// addCmd represents the add command
 var addCmd = &cobra.Command{
-	Use:   "add <url> [flags]",
-	Short: "add a package",
-	Long:  `add a package and store it in the config directory`,
+	Use:   "add <module-path>",
+	Short: "Save a Go module for quick reuse",
+	Long: `Add a Go module to your gopk registry.
 
-	Args: cobra.RangeArgs(1, 1),
+The add command stores a module path under a human-friendly alias,
+allowing you to quickly recall and install it in future projects.
+
+By default, this command only records the module and does not modify
+the current project. Use --install to immediately run 'go get' for
+the added package in the current Go module.`,
+
+	Args: cobra.ExactArgs(1),
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		url := args[0]
@@ -31,13 +37,4 @@ func init() {
 
 	rootCmd.AddCommand(addCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// addCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// addCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

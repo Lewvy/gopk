@@ -1,96 +1,161 @@
-# gopk (Go Picker)
+# gopk
 
-gopk is a personal bookmark manager and TUI launcher for your favorite Go packages.
+**gopk** is a personal package registry and CLI launcher for Go modules.
 
-Stop Googling "what was that full import path for viper?" every time you start a new project. gopk allows you to alias, organize, and fuzzy-find your commonly used Go modules, syncing them across all your development machines.
+It helps you remember, alias, and install the Go packages you already use—without searching, retyping long import paths, or relying on IDE suggestions.
 
-Note: This tool complements the standard Go toolchain. It helps you find packages, while go get handles the actual dependency resolution.
+gopk complements the Go toolchain: it helps you *recall* packages, while `go get` handles dependency resolution.
 
-## Why gopk?
+---
 
-Brain-Friendly Aliases: Map gin to github.com/gin-gonic/gin. Never type the full URL again.
+## Why gopk exists
 
-Interactive TUI: Built with Bubble Tea. Press Space to multi-select packages and Enter to install them all at once.
+Most Go developers repeatedly use the same set of packages:
 
-Distributed Workflow: (Coming Soon) Sync your favorite package list via GitHub Gists so your laptop and desktop are always in sync.
+- a logger  
+- a web framework  
+- a CLI helper  
+- a config library  
 
-Visual Feedback: See descriptions and metadata before you install.
+But Go module paths are long, easy to forget, and often ambiguous. IDEs can install packages once you choose them, but they don’t remember your personal preferences across projects or machines.
+
+gopk acts as **personal memory** for your Go dependencies.
+
+This is **not** a discovery tool or public registry.  
+If a package is in gopk, you have already used and trusted it before.
+
+---
+
+## Core ideas
+
+- **Aliases over memory**  
+  Map short names to full module paths.
+```
+
+zap  → go.uber.org/zap
+gin  → github.com/gin-gonic/gin
+
+````
+
+- **Fast recall, not discovery**  
+Name + module path is enough to recognize a package you already know.
+
+- **Explicit side effects**  
+Adding a package does not modify your project unless you explicitly ask it to.
+
+- **Project-aware installs**  
+Installation is always tied to a Go module (`go.mod`), never global.
+
+---
 
 ## Installation
 
-go install [github.com/yourusername/gopk@latest](https://github.com/yourusername/gopk@latest)
+```bash
+go install github.com/lewvy/gopk@latest
+````
 
+---
 
 ## Usage
 
-- Interactive Mode
-
-Simply run the command without arguments to open the TUI:
+### Add a package to your registry
 
 ```bash
-gopk
+gopk add go.uber.org/zap
 ```
 
-Type to fuzzy search your saved packages.
+By default, this only stores the package for later use.
 
-Space to toggle selection (select multiple tools!).
+You can provide a custom alias:
 
-Enter to run go get on all selected packages.
-
-- CLI Mode
-
-Add a package to your registry:
-
-``` bash
-# Auto-detects alias from URL, or you can specify one
-gopk add [https://github.com/spf13/cobra](https://github.com/spf13/cobra)
-# Saved as "cobra" -> "[github.com/spf13/cobra](https://github.com/spf13/cobra)"
+```bash
+gopk add github.com/gin-gonic/gin --name gin
 ```
 
-Install a specific package by alias:
+Semantic import versions (`/v2`, `/v3`, …) are ignored when inferring aliases unless you explicitly provide one.
 
-``` bash
-gopk get cobra
-# Executes: go get [github.com/spf13/cobra](https://github.com/spf13/cobra)
+---
+
+### Add and install immediately
+
+```bash
+gopk add go.uber.org/zap --install
 ```
 
-List all saved packages:
+This will:
+
+1. Save the package in your gopk registry
+2. Run `go get` in the current Go module
+
+---
+
+### Install saved packages into a project
+
+```bash
+gopk get zap
+gopk get zap gin
+```
+
+`get` resolves aliases and runs `go get` for each package.
+
+This command:
+
+* Requires an existing `go.mod`
+* Does not modify the gopk registry
+
+---
+
+### List saved packages
 
 ```bash
 gopk list
 ```
 
-## Configuration
+Displays all saved aliases and their module paths.
 
-Your package registry is stored in a simple JSON format, making it easy to back up or version control.
+---
 
-Location: ~/.config/gopk/packages.json
+## Storage & configuration
 
-[
-  {
-    "alias": "gin",
-    "url": "[github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)",
-    "description": "HTTP web framework written in Go"
-  },
-  {
-    "alias": "bubbletea",
-    "url": "[github.com/charmbracelet/bubbletea](https://github.com/charmbracelet/bubbletea)",
-    "description": "A powerful TUI framework"
-  }
-]
+gopk stores its data locally using SQLite.
+
+* **Data directory**: `~/.local/share/gopk/`
+* **Config directory**: `~/.config/gopk/`
+
+Aliases are enforced as **globally unique identifiers** to guarantee deterministic resolution.
+
+---
+
+## Design philosophy
+
+* Instant startup and offline-first
+* No hidden network calls
+* No implicit project mutations
+* Clear separation between remembering and installing
+* Domain-aware handling of Go modules
+
+If something feels surprising, it is probably a bug.
+
+---
 
 ## Roadmap
 
-[x] Basic CLI (Add/Remove/List)
+* [ ] Interactive TUI (Bubble Tea)
+* [ ] Import scanner (`go.mod` → gopk)
+* [ ] Manual cross-device sync (GitHub Gist)
+* [ ] Optional metadata enrichment (explicit, cached)
 
-[ ] Bubble Tea TUI implementation
+---
 
-[ ] Automatic description scraping from GitHub
+## Non-goals
 
-[ ] Distributed Sync: Gist/S3 integration to sync config across devices
+* Public package discovery
+* Ranking or recommendations
+* Replacing `go get`
+* Acting as a package manager
 
-[ ] import scanner: Scan existing go.mod files to populate your list
+---
 
-## Contributing
+## License
 
-Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
+MIT
