@@ -1,31 +1,30 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
-	"fmt"
-
+	"github.com/lewvy/gopk/cmd/internal/service"
 	"github.com/spf13/cobra"
 )
 
 // addCmd represents the add command
 var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Use:   "add <url> [alias]",
+	Short: "add a package",
+	Long:  `add a package and store it in the config directory`,
+	Args:  cobra.RangeArgs(1, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("add called")
+		c := cmd.Flag("n")
+		var alias string
+		if c != nil {
+			alias = c.Value.String()
+			args = append(args, alias)
+		}
+		return service.Add(args, queries)
 	},
 }
 
 func init() {
+	addCmd.Flags().String("n", "", "alias for a url")
 	rootCmd.AddCommand(addCmd)
 
 	// Here you will define your flags and configuration settings.

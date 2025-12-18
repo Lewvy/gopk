@@ -1,0 +1,4 @@
+bin/gopk
+sql/db/packages.db
+.env
+.tmux-sessionizer

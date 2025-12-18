@@ -21,9 +21,9 @@ Visual Feedback: See descriptions and metadata before you install.
 go install [github.com/yourusername/gopk@latest](https://github.com/yourusername/gopk@latest)
 
 
-🛠️ Usage
+## Usage
 
-1. Interactive Mode (The Magic ✨)
+- Interactive Mode
 
 Simply run the command without arguments to open the TUI:
 
@@ -37,7 +37,7 @@ Space to toggle selection (select multiple tools!).
 
 Enter to run go get on all selected packages.
 
-2. CLI Mode
+- CLI Mode
 
 Add a package to your registry:
 
@@ -47,18 +47,18 @@ gopk add [https://github.com/spf13/cobra](https://github.com/spf13/cobra)
 # Saved as "cobra" -> "[github.com/spf13/cobra](https://github.com/spf13/cobra)"
 ```
 
-
 Install a specific package by alias:
 
+``` bash
 gopk get cobra
 # Executes: go get [github.com/spf13/cobra](https://github.com/spf13/cobra)
+```
 
 List all saved packages:
 
 ```bash
 gopk list
 ```
-
 
 ## Configuration
 
