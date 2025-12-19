@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
-func List(q *data.Queries, limit int, sortByFreq bool) error {
+func List(q *data.Queries, limit int, sortByFreq bool) ([]data.Package, error) {
 	var packages []data.Package
 	var err error
 
@@ -17,8 +16,8 @@ func List(q *data.Queries, limit int, sortByFreq bool) error {
 		packages, err = q.ListPackagesByLastUsed(context.Background(), int64(limit))
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	fmt.Println(packages)
-	return nil
+
+	return packages, nil
 }

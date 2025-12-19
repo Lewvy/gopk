@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/lewvy/gopk/cmd/internal/data"
+	"github.com/lewvy/gopk/cmd/tui"
 	"github.com/lewvy/gopk/config"
 	"github.com/spf13/cobra"
 )
@@ -32,6 +33,9 @@ examples and usage of using your application. For example:
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return tui.Start(queries)
+	},
 }
 
 func Execute() {

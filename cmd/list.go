@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/lewvy/gopk/cmd/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -16,12 +18,16 @@ Use the --freq flag to sort by most frequently used instead.`,
 		limit, _ := cmd.Flags().GetInt("limit")
 		byFreq, _ := cmd.Flags().GetBool("freq")
 
-		return service.List(queries, limit, byFreq)
+		pkgs, err := service.List(queries, limit, byFreq)
+		for _, p := range pkgs {
+			fmt.Println(p.Name, p.Url, p.Freq)
+		}
+
+		return err
 	},
 }
 
 func init() {
-	// Default -1 is perfect for SQLite "No Limit"
 	listCmd.Flags().IntP("limit", "l", -1, "limit the number of results")
 	listCmd.Flags().BoolP("freq", "f", false, "sort results by frequency of use")
 

@@ -19,7 +19,7 @@ It does not modify your gopk registry.`,
 	Args: cobra.MinimumNArgs(1),
 
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return service.Get(args, queries)
+		return service.Get(args, false, queries)
 	},
 }
 

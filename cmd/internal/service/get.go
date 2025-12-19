@@ -8,7 +8,7 @@ import (
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
-func Get(pkgs []string, db *data.Queries) error {
+func Get(pkgs []string, outToTui bool, db *data.Queries) error {
 	errs := []error{}
 	args_map := make(map[string]struct{})
 	for _, pkg := range pkgs {
@@ -40,10 +40,11 @@ func Get(pkgs []string, db *data.Queries) error {
 	if len(errs) > 0 {
 		fmt.Println("lookup errors:", errs)
 	}
-	if len(out) > 0 {
 
+	if len(out) > 0 && !outToTui {
 		fmt.Println(string(out))
 	}
+
 	if err != nil {
 		return err
 	}
