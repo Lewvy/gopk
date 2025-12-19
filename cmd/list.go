@@ -20,7 +20,7 @@ Use the --freq flag to sort by most frequently used instead.`,
 
 		pkgs, err := service.List(queries, limit, byFreq)
 		for _, p := range pkgs {
-			fmt.Println(p.Name, p.Url, p.Freq)
+			fmt.Println(p.Name, p.Url, p.Freq.Int64)
 		}
 
 		return err
