@@ -8,6 +8,7 @@ package data
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const addPackageWithVersion = `-- name: AddPackageWithVersion :one
@@ -89,18 +90,49 @@ func (q *Queries) GetPackageByName(ctx context.Context, name string) (Package, e
 	return i, err
 }
 
-const getPackageURLByName = `-- name: GetPackageURLByName :one
-UPDATE packages
-SET last_used = CURRENT_TIMESTAMP, freq = freq + 1
-WHERE name = ?
-RETURNING url
+const getURLsByNames = `-- name: GetURLsByNames :many
+SELECT name, url, version 
+FROM packages 
+WHERE name IN (/*SLICE:names*/?)
 `
 
-func (q *Queries) GetPackageURLByName(ctx context.Context, name string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getPackageURLByName, name)
-	var url string
-	err := row.Scan(&url)
-	return url, err
+type GetURLsByNamesRow struct {
+	Name    string
+	Url     string
+	Version sql.NullString
+}
+
+func (q *Queries) GetURLsByNames(ctx context.Context, names []string) ([]GetURLsByNamesRow, error) {
+	query := getURLsByNames
+	var queryParams []interface{}
+	if len(names) > 0 {
+		for _, v := range names {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:names*/?", strings.Repeat(",?", len(names))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:names*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetURLsByNamesRow
+	for rows.Next() {
+		var i GetURLsByNamesRow
+		if err := rows.Scan(&i.Name, &i.Url, &i.Version); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPackagesByFrequency = `-- name: ListPackagesByFrequency :many

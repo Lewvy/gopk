@@ -29,7 +29,7 @@ the added package in the current Go module.`,
 		install, _ := cmd.Flags().GetBool("install")
 		force, _ := cmd.Flags().GetBool("force")
 
-		err := service.Add(url, name, version, install, force, false, queries)
+		err := service.Add(url, name, version, install, force, queries)
 		if err == service.ErrConstraintUnique {
 			return fmt.Errorf("package %s already exists. use --force to overwrite", name)
 		}

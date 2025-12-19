@@ -13,11 +13,10 @@ set url = ?, version = ?
 where name = ?
 RETURNING *;
 
--- name: GetPackageURLByName :one
-UPDATE packages
-SET last_used = CURRENT_TIMESTAMP, freq = freq + 1
-WHERE name = ?
-RETURNING url;
+-- name: GetURLsByNames :many
+SELECT name, url, version 
+FROM packages 
+WHERE name IN (sqlc.slice('names'));
 
 -- name: UpdatePackage :one
 UPDATE packages
@@ -40,3 +39,4 @@ select * from packages where id = ?;
 
 -- name: GetPackageByName :one
 select * from packages where name = ?;
+

@@ -4,49 +4,52 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
-func Get(pkgs []string, outToTui bool, db *data.Queries) error {
-	errs := []error{}
-	args_map := make(map[string]struct{})
-	for _, pkg := range pkgs {
-		url, err := db.GetPackageURLByName(context.Background(), pkg)
-		if err != nil {
-			e := fmt.Errorf("error finding %s: %q", pkg, err)
-			errs = append(errs, e)
-			continue
-		}
-		args_map[url] = struct{}{}
-	}
-	args := make([]string, 0, len(args_map)+1)
-	args = append(args, "get")
+func Get(pkgs []string, db *data.Queries) error {
 
-	for i := range args_map {
-		args = append(args, i)
+	rows, err := db.GetURLsByNames(context.Background(), pkgs)
+	if err != nil {
+		return fmt.Errorf("db error: %q", err)
 	}
-	if len(args_map) == 0 {
-		if len(errs) > 0 {
-			fmt.Println("Errors encountered:", errs)
+
+	foundMap := make(map[string]struct{})
+	for _, row := range rows {
+		foundMap[row.Name] = struct{}{}
+	}
+
+	var missing []string
+	for _, req := range pkgs {
+		if _, exists := foundMap[req]; !exists {
+			missing = append(missing, req)
 		}
-		return fmt.Errorf("no valid packages to install")
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("packages not found: %s", strings.Join(missing, ", "))
+	}
+
+	args := []string{"get"}
+	for _, row := range rows {
+		args = append(args, row.Url)
 	}
 
 	cmd := exec.Command("go", args...)
-
 	out, err := cmd.CombinedOutput()
 
-	if len(errs) > 0 {
-		fmt.Println("lookup errors:", errs)
-	}
-
-	if len(out) > 0 && !outToTui {
-		fmt.Println(string(out))
-	}
-
 	if err != nil {
-		return err
+		output := strings.TrimSpace(string(out))
+		if len(output) > 200 {
+			output = output[:197] + "..."
+		}
+		return fmt.Errorf("install failed: %s", output)
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("missing packages: %s", strings.Join(missing, ", "))
 	}
 
 	return nil

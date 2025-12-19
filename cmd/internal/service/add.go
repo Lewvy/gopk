@@ -19,7 +19,7 @@ var (
 	ErrNotFound         = errors.New("package not found in the registry")
 )
 
-func Add(url, name, version string, iflag, force, outToTUI bool, queries *data.Queries) error {
+func Add(url, name, version string, iflag, force bool, queries *data.Queries) error {
 	url = normalizeURL(url)
 	if name == "" {
 		name = getAlias(url)
@@ -53,7 +53,7 @@ func Add(url, name, version string, iflag, force, outToTUI bool, queries *data.Q
 	}
 
 	if iflag {
-		return Get([]string{name}, outToTUI, queries)
+		return Get([]string{name}, queries)
 	}
 
 	return nil
