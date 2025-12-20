@@ -72,7 +72,6 @@ func (p packageSource) Len() int { return len(p) }
 type model struct {
 	choices  []data.Package
 	filtered []data.Package
-	cursor   int
 	selected map[data.Package]struct{}
 	queries  *data.Queries
 	spinner  spinner.Model
@@ -95,8 +94,11 @@ type model struct {
 	searchInput textinput.Model
 	groupInput  textinput.Model
 
-	groups      []data.Group
-	groupCursor int
+	groups []data.Group
+
+	cursorGroup        int
+	cursorGroupPackage int
+	cursorPackage      int
 
 	installFlag bool
 	forceFlag   bool
@@ -226,7 +228,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "g":
 			if m.view == viewPackages {
 				m.view = viewGroups
-				m.groupCursor = 0
+				m.cursorGroup = 0
 				return m, fetchGroupsCmd(m.queries)
 			}
 
@@ -235,13 +237,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewGroupPackages:
 				m.view = viewGroups
 				m.activeGroup = data.Group{}
-				m.cursor = 0
+				m.cursorPackage = 0
 				m.selected = make(map[data.Package]struct{})
 				return m, nil
 
 			case viewGroups:
 				m.view = viewPackages
-				m.cursor = 0
+				m.cursorPackage = 0
 				return m, refreshListCmd(m.queries, m.sm)
 
 			default:
@@ -252,13 +254,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+			switch m.view {
+			case viewGroups:
+				if m.cursorGroup > 0 {
+					m.cursorGroup--
+				}
+			default:
+				if m.cursorPackage > 0 {
+					m.cursorPackage--
+				}
+
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.filtered)-1 {
-				m.cursor++
+			switch m.view {
+			case viewGroups:
+				if m.cursorGroup < len(m.groups)-1 {
+					m.cursorGroup++
+				}
+			default:
+				if m.cursorPackage < len(m.filtered)-1 {
+					m.cursorPackage++
+
+				}
 			}
 
 		case "+":
@@ -275,7 +293,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			if len(m.selected) > 0 {
 				m.assigning = true
-				m.groupCursor = 0
+				m.cursorGroup = 0
 				return m, fetchGroupsCmd(m.queries)
 			}
 			m.statusMessage = "Select packages first!"
@@ -305,14 +323,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.groups) == 0 {
 					return m, nil
 				}
-				m.activeGroup = m.groups[m.groupCursor]
+				m.activeGroup = m.groups[m.cursorGroup]
 				m.view = viewGroupPackages
-				m.cursor = 0
+				m.cursorPackage = 0
 				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
 
 			case viewGroupPackages, viewPackages:
 				if len(m.filtered) > 0 {
-					url := m.filtered[m.cursor]
+					url := m.filtered[m.cursorPackage]
 					if _, ok := m.selected[url]; ok {
 						delete(m.selected, url)
 					} else {
@@ -327,14 +345,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.groups) == 0 {
 					return m, nil
 				}
-				m.activeGroup = m.groups[m.groupCursor]
+				m.activeGroup = m.groups[m.cursorGroup]
 				m.view = viewGroupPackages
-				m.cursor = 0
+				m.cursorPackage = 0
 				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
 
 			default:
 				if len(m.filtered) > 0 {
-					url := m.filtered[m.cursor]
+					url := m.filtered[m.cursorPackage]
 					if _, ok := m.selected[url]; ok {
 						delete(m.selected, url)
 					} else {
@@ -359,7 +377,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.choices = msg.pkgs
 			m.filtered = m.choices
-			m.cursor = 0
+			m.cursorPackage = 0
 			m.statusMessage = "Sorted by frequency"
 		}
 
@@ -369,7 +387,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.choices = msg.pkgs
 			m.filtered = m.choices
-			m.cursor = 0
+			m.cursorPackage = 0
 			m.statusMessage = "Sorted by last used"
 		}
 
@@ -427,8 +445,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.cursor >= len(m.filtered) {
-			m.cursor = 0
+		if m.cursorPackage >= len(m.filtered) {
+			m.cursorPackage = 0
 		}
 
 	case spinner.TickMsg:
@@ -515,7 +533,7 @@ func (m model) searchingUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.filtered = results
 	}
-	m.cursor = 0
+	m.cursorPackage = 0
 	return m, cmd
 }
 
@@ -589,13 +607,13 @@ func (m model) assigningUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
-			if m.groupCursor > 0 {
-				m.groupCursor--
+			if m.cursorGroup > 0 {
+				m.cursorGroup--
 			}
 
 		case "down", "j":
-			if m.groupCursor < len(m.groups)-1 {
-				m.groupCursor++
+			if m.cursorGroup < len(m.groups)-1 {
+				m.cursorGroup++
 			}
 
 		case "enter":
@@ -604,7 +622,7 @@ func (m model) assigningUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			group := m.groups[m.groupCursor]
+			group := m.groups[m.cursorGroup]
 			m.assigning = false
 
 			pkgs := make([]string, 0, len(m.selected))
@@ -720,7 +738,7 @@ func (m model) groupListView() string {
 	} else {
 		for i, g := range m.groups {
 			cursor := " "
-			if i == m.groupCursor {
+			if i == m.cursorGroup {
 				cursor = ">"
 			}
 			fmt.Fprintf(&s, "%s %s\n", cursor, g.Name)
@@ -783,7 +801,7 @@ func (m model) assignGroupView() string {
 	} else {
 		for i, group := range m.groups {
 			cursor := " "
-			if m.groupCursor == i {
+			if m.cursorGroup == i {
 				cursor = ">"
 			}
 			fmt.Fprintf(&s, "%s %s\n", cursor, group.Name)
@@ -853,7 +871,7 @@ func (m model) packageView(title string) string {
 
 	for i, pkg := range m.filtered {
 		cursor := " "
-		if m.cursor == i {
+		if m.cursorPackage == i {
 			cursor = ">"
 		}
 
@@ -883,7 +901,7 @@ func (m model) packageView(title string) string {
 			rowStyle = rowStyle.Foreground(lipgloss.Color("151"))
 		}
 
-		if m.cursor == i {
+		if m.cursorPackage == i {
 			rowStyle = rowStyle.
 				Background(lipgloss.Color("236")).
 				Foreground(lipgloss.Color("255"))
