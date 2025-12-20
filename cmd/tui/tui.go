@@ -525,7 +525,6 @@ func (m model) searchingUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if query == "" {
 		m.filtered = m.choices
 	} else {
-		// Fuzzy search against String() method of packageSource
 		matches := fuzzy.FindFrom(query, packageSource(m.choices))
 		var results []data.Package
 		for _, match := range matches {
@@ -575,7 +574,6 @@ func (m model) addingUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetForm()
 				return m, addPackageCmd(m.queries, url, name, version, m.installFlag, m.forceFlag)
 			}
-			// Move to next input if not at the end
 			m.focusIndex++
 			m.updateFocus()
 			return m, nil
@@ -627,7 +625,6 @@ func (m model) assigningUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			pkgs := make([]string, 0, len(m.selected))
 			for pkg := range m.selected {
-				// Prefer URL or ID over Name for uniqueness
 				pkgs = append(pkgs, pkg.Url)
 			}
 			return m, assignToGroupCmd(m.queries, pkgs, group.Name)
@@ -669,8 +666,6 @@ func (m model) creatingGroupUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.groupInput, cmd = m.groupInput.Update(msg)
 	return m, cmd
 }
-
-// --- Views ---
 
 func (m model) View() string {
 	var s strings.Builder
@@ -858,7 +853,6 @@ func (m model) packageView(title string) string {
 	)
 	s.WriteRune('\n')
 
-	// Avoid crash if choices are empty
 	if len(m.filtered) == 0 {
 		s.WriteString(
 			lipgloss.NewStyle().
