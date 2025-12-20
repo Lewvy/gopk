@@ -6,8 +6,9 @@ import (
 )
 
 var getCmd = &cobra.Command{
-	Use:   "get <alias> [alias...]",
-	Short: "Install one or more saved packages into the current module",
+	Use:          "get <alias> [alias...]",
+	Short:        "Install one or more saved packages into the current module",
+	SilenceUsage: true,
 	Long: `Install Go modules by alias from your gopk registry.
 
 The get command resolves aliases stored in gopk and runs 'go get'
@@ -19,7 +20,7 @@ It does not modify your gopk registry.`,
 	Args: cobra.MinimumNArgs(1),
 
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return service.Get(args, queries)
+		return service.GetFromName(args, queries)
 	},
 }
 

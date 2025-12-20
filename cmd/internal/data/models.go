@@ -8,6 +8,17 @@ import (
 	"database/sql"
 )
 
+type Group struct {
+	ID        int64
+	Name      string
+	CreatedAt sql.NullTime
+}
+
+type GroupPackage struct {
+	GroupID   int64
+	PackageID int64
+}
+
 type Package struct {
 	ID        int64
 	Name      string

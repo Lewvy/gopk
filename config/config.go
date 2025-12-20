@@ -2,7 +2,6 @@ package config
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,25 +13,39 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+func getDataDir() (string, error) {
+
+	if custom := os.Getenv("GOPK_DB_DIR"); custom != "" {
+		return custom, nil
+	}
+
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, "gopk"), nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "gopk"), nil
+}
+
 func InitDB() (*sql.DB, error) {
 
-	home_dir, err1 := os.UserHomeDir()
-
-	path := filepath.Join(home_dir, ".local/share/gopk")
-	err2 := os.MkdirAll(path, 0700)
-
-	if err := errors.Join(err1, err2); err != nil {
-		return nil, err
+	path, err := getDataDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine data dir: %w", err)
 	}
 
-	db_str := filepath.Join(path, "packages.db")
-	if path == "" {
-		return nil, errors.New("db dsn not found")
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create data dir: %w", err)
 	}
+
+	dbPath := filepath.Join(path, "packages.db")
 
 	goose.SetBaseFS(migrations.FS)
-	if os.Getenv("DEBUG") == "true" {
-	} else {
+
+	if os.Getenv("DEBUG") != "true" {
 		goose.SetLogger(log.New(io.Discard, "", 0))
 	}
 
@@ -40,7 +53,7 @@ func InitDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite3", db_str)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -49,11 +62,51 @@ func InitDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("error running migrations: %w", err)
 	}
 
-	err = db.Ping()
-	if err != nil {
+	if err := db.Ping(); err != nil {
 		return nil, err
 	}
 
 	return db, nil
+}
 
+func ResetDB(db *sql.DB) error {
+
+	path, err := getDataDir()
+	if err != nil {
+		return err
+	}
+	dbPath := filepath.Join(path, "packages.db")
+
+	if err := backupFile(dbPath); err != nil {
+		return fmt.Errorf("backup failed: %w", err)
+	}
+	fmt.Printf("Backup saved to: %s.bak\n", dbPath)
+
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.Reset(db, "schema"); err != nil {
+		return fmt.Errorf("reset failed: %w", err)
+	}
+
+	if err := goose.Up(db, "schema"); err != nil {
+		return fmt.Errorf("migration up failed: %w", err)
+	}
+
+	return nil
+}
+
+func backupFile(src string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	dest, err := os.Create(src + ".bak")
+	if err != nil {
+		return err
+	}
+	defer dest.Close()
+
+	_, err = io.Copy(dest, source)
+	return err
 }

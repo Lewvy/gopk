@@ -53,7 +53,7 @@ func Add(url, name, version string, iflag, force bool, queries *data.Queries) er
 	}
 
 	if iflag {
-		return Get([]string{name}, queries)
+		return GetFromUrl([]string{name})
 	}
 
 	return nil

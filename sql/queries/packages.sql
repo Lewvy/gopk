@@ -6,6 +6,10 @@ INSERT into packages (name, url, version) VALUES (
 -- name: GetIDByName :one
 select id from packages where name = ?;
 
+-- name: UpdatePackageUsage :exec
+UPDATE packages 
+SET freq = freq + 1, last_used = CURRENT_TIMESTAMP 
+WHERE url = ?;
 
 -- name: UpdatePackageByName :one
 UPDATE packages

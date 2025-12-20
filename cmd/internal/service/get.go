@@ -9,16 +9,18 @@ import (
 	"github.com/lewvy/gopk/cmd/internal/data"
 )
 
-func Get(pkgs []string, db *data.Queries) error {
-
+func GetFromName(pkgs []string, db *data.Queries) error {
 	rows, err := db.GetURLsByNames(context.Background(), pkgs)
 	if err != nil {
 		return fmt.Errorf("db error: %q", err)
 	}
 
 	foundMap := make(map[string]struct{})
+	var urls []string
+
 	for _, row := range rows {
 		foundMap[row.Name] = struct{}{}
+		urls = append(urls, row.Url)
 	}
 
 	var missing []string
@@ -28,18 +30,33 @@ func Get(pkgs []string, db *data.Queries) error {
 		}
 	}
 
-	if len(rows) == 0 {
+	if len(urls) == 0 {
 		return fmt.Errorf("packages not found: %s", strings.Join(missing, ", "))
 	}
 
-	args := []string{"get"}
-	for _, row := range rows {
-		args = append(args, row.Url)
+	if err := runGoGet(urls); err != nil {
+		return err
 	}
 
-	cmd := exec.Command("go", args...)
-	out, err := cmd.CombinedOutput()
+	if len(missing) > 0 {
+		return fmt.Errorf("missing packages: %s", strings.Join(missing, ", "))
+	}
 
+	return nil
+}
+
+func GetFromUrl(urls []string) error {
+	if len(urls) == 0 {
+		return nil
+	}
+	return runGoGet(urls)
+}
+
+func runGoGet(urls []string) error {
+	args := append([]string{"get"}, urls...)
+	cmd := exec.Command("go", args...)
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		output := strings.TrimSpace(string(out))
 		if len(output) > 200 {
@@ -47,10 +64,5 @@ func Get(pkgs []string, db *data.Queries) error {
 		}
 		return fmt.Errorf("install failed: %s", output)
 	}
-
-	if len(missing) > 0 {
-		return fmt.Errorf("missing packages: %s", strings.Join(missing, ", "))
-	}
-
 	return nil
 }

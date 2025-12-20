@@ -274,3 +274,14 @@ func (q *Queries) UpdatePackageByName(ctx context.Context, arg UpdatePackageByNa
 	)
 	return i, err
 }
+
+const updatePackageUsage = `-- name: UpdatePackageUsage :exec
+UPDATE packages 
+SET freq = freq + 1, last_used = CURRENT_TIMESTAMP 
+WHERE url = ?
+`
+
+func (q *Queries) UpdatePackageUsage(ctx context.Context, url string) error {
+	_, err := q.db.ExecContext(ctx, updatePackageUsage, url)
+	return err
+}

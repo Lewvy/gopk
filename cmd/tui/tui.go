@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -15,7 +16,8 @@ import (
 )
 
 type installFinishedMsg struct {
-	err error
+	installedUrls []string
+	err           error
 }
 
 type packageAddedMsg struct {
@@ -33,35 +35,59 @@ type groupAssignedMsg struct {
 	err   error
 }
 
+type packagesRemovedMsg struct {
+	err error
+}
+
 type groupsListMsg struct {
-	groups []string
+	groups []data.Group
+	err    error
 }
 
 type packagesListMsg struct {
 	packages []data.Package
 }
 
+type viewMode int
+type sortMode int
+
+const (
+	viewPackages viewMode = iota
+	viewGroups
+	viewGroupPackages
+)
+
+const (
+	sortByLastUsed sortMode = iota
+	sortByFrequency
+)
+
 type packageSource []data.Package
 
-func (p packageSource) String(i int) string { return p[i].Name }
-func (p packageSource) Len() int            { return len(p) }
+func (p packageSource) String(i int) string {
+	return fmt.Sprintf("%s %s", p[i].Name, p[i].Url)
+}
+func (p packageSource) Len() int { return len(p) }
 
 type model struct {
 	choices  []data.Package
 	filtered []data.Package
 	cursor   int
-	selected map[int]string
+	selected map[data.Package]struct{}
 	queries  *data.Queries
 	spinner  spinner.Model
+	view     viewMode
+
+	activeGroup data.Group
 
 	installing    bool
 	adding        bool
 	searching     bool
 	assigning     bool
 	creatingGroup bool
-	debugFlag     bool
 
 	statusMessage string
+	sm            sortMode
 
 	inputs     []textinput.Model
 	focusIndex int
@@ -69,7 +95,7 @@ type model struct {
 	searchInput textinput.Model
 	groupInput  textinput.Model
 
-	groups      []string
+	groups      []data.Group
 	groupCursor int
 
 	installFlag bool
@@ -79,7 +105,8 @@ type model struct {
 func initialModel(q *data.Queries) model {
 	packages, err := service.List(q, -1, false)
 	if err != nil {
-		log.Fatalf("error retrieving packages: %q", err)
+		log.Printf("error retrieving packages: %v", err)
+		packages = []data.Package{}
 	}
 
 	s := spinner.New()
@@ -120,8 +147,10 @@ func initialModel(q *data.Queries) model {
 	return model{
 		choices:       packages,
 		filtered:      packages,
-		selected:      make(map[int]string),
+		selected:      make(map[data.Package]struct{}),
+		sm:            sortByLastUsed,
 		spinner:       s,
+		view:          viewPackages,
 		inputs:        inputs,
 		searchInput:   si,
 		groupInput:    gi,
@@ -132,7 +161,7 @@ func initialModel(q *data.Queries) model {
 		assigning:     false,
 		creatingGroup: false,
 		queries:       q,
-		groups:        []string{},
+		groups:        []data.Group{},
 	}
 }
 
@@ -141,166 +170,86 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if key.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+	}
 
 	if m.creatingGroup {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "enter":
-				name := m.groupInput.Value()
-				if name != "" {
-					m.creatingGroup = false
-					m.groupInput.Reset()
-					m.statusMessage = "Creating group " + name + "..."
-					return m, createGroupCmd(m.queries, name)
-				}
-				m.creatingGroup = false
-				return m, nil
-			case "esc":
-				m.creatingGroup = false
-				m.groupInput.Reset()
-				return m, nil
-			}
-		}
-		m.groupInput, cmd = m.groupInput.Update(msg)
-		return m, cmd
+		return m.creatingGroupUpdate(msg)
 	}
-
 	if m.assigning {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "up", "k":
-				if m.groupCursor > 0 {
-					m.groupCursor--
-				}
-			case "down", "j":
-				if m.groupCursor < len(m.groups)-1 {
-					m.groupCursor++
-				}
-			case "enter":
-				if len(m.groups) == 0 {
-					m.assigning = false
-					return m, nil
-				}
-				group := m.groups[m.groupCursor]
-				m.assigning = false
-
-				pkgs := []string{}
-				for _, p := range m.selected {
-					pkgs = append(pkgs, p)
-				}
-
-				return m, assignToGroupCmd(m.queries, pkgs, group)
-
-			case "esc":
-				m.assigning = false
-				return m, nil
-			}
-		}
-		return m, nil
+		return m.assigningUpdate(msg)
 	}
-
 	if m.adding {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "tab", "enter":
-				if m.focusIndex < len(m.inputs)-1 {
-					m.focusIndex++
-					m.updateFocus()
-					return m, nil
-				}
-
-				if m.focusIndex == len(m.inputs)-1 {
-					url := m.inputs[0].Value()
-					name := m.inputs[1].Value()
-					version := m.inputs[2].Value()
-
-					if url == "" {
-						return m, nil
-					}
-
-					m.adding = false
-					m.statusMessage = "Adding " + url + "..."
-					m.resetForm()
-					return m, addPackageCmd(m.queries, url, name, version, m.installFlag, m.forceFlag, m.debugFlag)
-				}
-
-			case "up", "shift+tab":
-				if m.focusIndex > 0 {
-					m.focusIndex--
-					m.updateFocus()
-					return m, nil
-				}
-
-			case "ctrl+g":
-				m.installFlag = !m.installFlag
-				return m, nil
-
-			case "ctrl+f":
-				m.forceFlag = !m.forceFlag
-				return m, nil
-
-			case "esc":
-				m.adding = false
-				m.resetForm()
-				return m, nil
-			}
-		}
-
-		cmds := make([]tea.Cmd, len(m.inputs))
-		for i := range m.inputs {
-			m.inputs[i], cmds[i] = m.inputs[i].Update(msg)
-		}
-		return m, tea.Batch(cmds...)
+		return m.addingUpdate(msg)
 	}
-
 	if m.searching {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "enter", "esc":
-				m.searching = false
-				m.searchInput.Blur()
-				return m, nil
-			}
-		}
-
-		m.searchInput, cmd = m.searchInput.Update(msg)
-
-		query := m.searchInput.Value()
-		if query == "" {
-			m.filtered = m.choices
-		} else {
-			matches := fuzzy.FindFrom(query, packageSource(m.choices))
-			var results []data.Package
-			for _, match := range matches {
-				results = append(results, m.choices[match.Index])
-			}
-			m.filtered = results
-		}
-		m.cursor = 0
-		return m, cmd
+		return m.searchingUpdate(msg)
 	}
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
 
-		case "q":
-			if !m.installing {
-				return m, tea.Quit
+		case "f":
+			m.sm = sortByFrequency
+			switch m.view {
+			case viewPackages:
+				return m, refreshListCmd(m.queries, m.sm)
+
+			case viewGroupPackages:
+				return m, sortGroupByFreq(context.Background(), m.queries, m.activeGroup.Name)
+
+			default:
+				return m, nil
 			}
-			m.statusMessage = "Wait for installation to finish or use Ctrl+C to force quit."
+
+		case "l":
+			m.sm = sortByLastUsed
+			switch m.view {
+			case viewPackages:
+				return m, refreshListCmd(m.queries, m.sm)
+
+			case viewGroupPackages:
+				return m, sortGroupByLastUsed(context.Background(), m.queries, m.activeGroup.Name)
+			}
+			return m, nil
 
 		case "d":
-			m.debugFlag = !m.debugFlag
-			m.statusMessage = fmt.Sprintf("Debug Mode: %v", m.debugFlag)
-			return m, nil
+			if m.view == viewGroupPackages && len(m.selected) > 0 {
+				m.statusMessage = "Removing packages from group..."
+				return m, removePackagesFromGroups(m.queries, m.selected, m.activeGroup)
+			}
+
+		case "g":
+			if m.view == viewPackages {
+				m.view = viewGroups
+				m.groupCursor = 0
+				return m, fetchGroupsCmd(m.queries)
+			}
+
+		case "q", "esc":
+			switch m.view {
+			case viewGroupPackages:
+				m.view = viewGroups
+				m.activeGroup = data.Group{}
+				m.cursor = 0
+				m.selected = make(map[data.Package]struct{})
+				return m, nil
+
+			case viewGroups:
+				m.view = viewPackages
+				m.cursor = 0
+				return m, refreshListCmd(m.queries, m.sm)
+
+			default:
+				if !m.installing {
+					return m, tea.Quit
+				}
+				m.statusMessage = "Wait for installation to finish or use Ctrl+C to force quit."
+			}
 
 		case "up", "k":
 			if m.cursor > 0 {
@@ -342,20 +291,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.selected) > 0 {
 				m.installing = true
 				m.statusMessage = ""
-				pkgs := []string{}
-				for _, pkg := range m.selected {
-					pkgs = append(pkgs, pkg)
+				pkgs := make([]string, 0, len(m.selected))
+				for pkg := range m.selected {
+					pkgs = append(pkgs, pkg.Url)
 				}
-				return m, tea.Batch(installPackagesCmd(pkgs, m.debugFlag, m.queries), m.spinner.Tick)
+				m.selected = make(map[data.Package]struct{})
+				return m, tea.Batch(installPackagesCmd(pkgs), m.spinner.Tick)
 			}
 
-		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = m.filtered[m.cursor].Name
+		case "enter":
+			switch m.view {
+			case viewGroups:
+				if len(m.groups) == 0 {
+					return m, nil
+				}
+				m.activeGroup = m.groups[m.groupCursor]
+				m.view = viewGroupPackages
+				m.cursor = 0
+				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
+
+			case viewGroupPackages, viewPackages:
+				if len(m.filtered) > 0 {
+					url := m.filtered[m.cursor]
+					if _, ok := m.selected[url]; ok {
+						delete(m.selected, url)
+					} else {
+						m.selected[url] = struct{}{}
+					}
+				}
 			}
+
+		case " ":
+			switch m.view {
+			case viewGroups:
+				if len(m.groups) == 0 {
+					return m, nil
+				}
+				m.activeGroup = m.groups[m.groupCursor]
+				m.view = viewGroupPackages
+				m.cursor = 0
+				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
+
+			default:
+				if len(m.filtered) > 0 {
+					url := m.filtered[m.cursor]
+					if _, ok := m.selected[url]; ok {
+						delete(m.selected, url)
+					} else {
+						m.selected[url] = struct{}{}
+					}
+				}
+			}
+
 		}
 
 	case installFinishedMsg:
@@ -364,15 +351,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "Error: " + msg.err.Error()
 		} else {
 			m.statusMessage = "Installation complete!"
+			return m, updateStatsCmd(m.queries, msg.installedUrls)
 		}
-		return m, nil
+	case sortGroupByFreqMsg:
+		if msg.err != nil {
+			m.statusMessage = "Error sorting: " + msg.err.Error()
+		} else {
+			m.choices = msg.pkgs
+			m.filtered = m.choices
+			m.cursor = 0
+			m.statusMessage = "Sorted by frequency"
+		}
+
+	case sortGroupByLastUsedMsg:
+		if msg.err != nil {
+			m.statusMessage = "Error sorting: " + msg.err.Error()
+		} else {
+			m.choices = msg.pkgs
+			m.filtered = m.choices
+			m.cursor = 0
+			m.statusMessage = "Sorted by last used"
+		}
 
 	case packageAddedMsg:
 		if msg.err != nil {
 			m.statusMessage = "Error adding: " + msg.err.Error()
 		} else {
 			m.statusMessage = "Package added successfully!"
-			return m, refreshListCmd(m.queries)
+			return m, refreshListCmd(m.queries, m.sm)
+		}
+
+	case packagesRemovedMsg:
+		if msg.err != nil {
+			m.statusMessage = "Error removing: " + msg.err.Error()
+		} else {
+			m.statusMessage = "Packages removed from group."
+			m.selected = make(map[data.Package]struct{})
+			return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
 		}
 
 	case groupCreatedMsg:
@@ -388,17 +403,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "Error assigning: " + msg.err.Error()
 		} else {
 			m.statusMessage = fmt.Sprintf("Assigned %d packages to '%s'", msg.count, msg.group)
-			m.selected = make(map[int]string)
+			m.selected = make(map[data.Package]struct{})
 		}
 
 	case groupsListMsg:
-		m.groups = msg.groups
-		return m, nil
+		if msg.err != nil {
+			m.statusMessage = "Error fetching groups: " + msg.err.Error()
+		} else {
+			m.groups = msg.groups
+		}
 
 	case packagesListMsg:
 		m.choices = msg.packages
-		m.filtered = msg.packages
-		return m, nil
+		if m.searchInput.Value() != "" {
+			m.filtered = m.choices
+			m.searchInput.Reset()
+		} else {
+			m.filtered = m.choices
+			if m.sm == sortByFrequency {
+				m.statusMessage = "sorted by frequency"
+			} else {
+				m.statusMessage = "sorted by last used"
+			}
+		}
+
+		if m.cursor >= len(m.filtered) {
+			m.cursor = 0
+		}
 
 	case spinner.TickMsg:
 		if m.installing {
@@ -411,132 +442,472 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func sortGroupByLastUsed(context context.Context, queries *data.Queries, groupName string) tea.Cmd {
+	return func() tea.Msg {
+		pkgs, err := service.ListPackagesByGroupOrderByLU(context, queries, groupName)
+		return sortGroupByLastUsedMsg{
+			pkgs: pkgs,
+			err:  err,
+		}
+	}
+}
+
+type sortGroupByLastUsedMsg struct {
+	pkgs []data.Package
+	err  error
+}
+
+func sortGroupByFreq(context context.Context, queries *data.Queries, groupName string) tea.Cmd {
+	return func() tea.Msg {
+		pkgs, err := service.ListPackagesByGroupOrderByFreq(context, queries, groupName)
+		return sortGroupByFreqMsg{pkgs, err}
+	}
+}
+
+type sortGroupByFreqMsg struct {
+	pkgs []data.Package
+	err  error
+}
+
+func removePackagesFromGroups(queries *data.Queries, pkgs map[data.Package]struct{}, group data.Group) tea.Cmd {
+	return func() tea.Msg {
+		err := service.RemovePackagesFromGroups(context.Background(), queries, pkgs, group.ID)
+		return packagesRemovedMsg{err: err}
+	}
+}
+
+func fetchPackagesByGroupCmd(q *data.Queries, group string) tea.Cmd {
+	return func() tea.Msg {
+		pkgs, err := service.ListPackagesByGroupOrderByFreq(context.Background(), q, group)
+		if err != nil {
+			return packagesListMsg{packages: []data.Package{}}
+		}
+		return packagesListMsg{packages: pkgs}
+	}
+}
+
+func (m model) searchingUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter", "esc":
+			m.searching = false
+			m.searchInput.Blur()
+			if m.searchInput.Value() == "" {
+				m.filtered = m.choices
+			}
+			return m, nil
+		}
+	}
+
+	m.searchInput, cmd = m.searchInput.Update(msg)
+
+	query := m.searchInput.Value()
+	if query == "" {
+		m.filtered = m.choices
+	} else {
+		// Fuzzy search against String() method of packageSource
+		matches := fuzzy.FindFrom(query, packageSource(m.choices))
+		var results []data.Package
+		for _, match := range matches {
+			results = append(results, m.choices[match.Index])
+		}
+		m.filtered = results
+	}
+	m.cursor = 0
+	return m, cmd
+}
+
+func (m model) addingUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+
+		case "tab":
+			if m.focusIndex < len(m.inputs)-1 {
+				m.focusIndex++
+			} else {
+				m.focusIndex = 0
+			}
+			m.updateFocus()
+			return m, nil
+
+		case "shift+tab":
+			if m.focusIndex > 0 {
+				m.focusIndex--
+			} else {
+				m.focusIndex = len(m.inputs) - 1
+			}
+			m.updateFocus()
+			return m, nil
+
+		case "enter":
+			if m.focusIndex == len(m.inputs)-1 {
+				url := m.inputs[0].Value()
+				name := m.inputs[1].Value()
+				version := m.inputs[2].Value()
+
+				if url == "" {
+					return m, nil
+				}
+
+				m.adding = false
+				m.statusMessage = "Adding " + url + "..."
+				m.resetForm()
+				return m, addPackageCmd(m.queries, url, name, version, m.installFlag, m.forceFlag)
+			}
+			// Move to next input if not at the end
+			m.focusIndex++
+			m.updateFocus()
+			return m, nil
+
+		case "ctrl+g":
+			m.installFlag = !m.installFlag
+			return m, nil
+
+		case "ctrl+f":
+			m.forceFlag = !m.forceFlag
+			return m, nil
+
+		case "esc":
+			m.adding = false
+			m.resetForm()
+			return m, nil
+		}
+	}
+
+	cmds := make([]tea.Cmd, len(m.inputs))
+	for i := range m.inputs {
+		m.inputs[i], cmds[i] = m.inputs[i].Update(msg)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m model) assigningUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.groupCursor > 0 {
+				m.groupCursor--
+			}
+
+		case "down", "j":
+			if m.groupCursor < len(m.groups)-1 {
+				m.groupCursor++
+			}
+
+		case "enter":
+			if len(m.groups) == 0 {
+				m.assigning = false
+				return m, nil
+			}
+
+			group := m.groups[m.groupCursor]
+			m.assigning = false
+
+			pkgs := make([]string, 0, len(m.selected))
+			for pkg := range m.selected {
+				// Prefer URL or ID over Name for uniqueness
+				pkgs = append(pkgs, pkg.Url)
+			}
+			return m, assignToGroupCmd(m.queries, pkgs, group.Name)
+
+		case "q", "esc":
+			m.assigning = false
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m model) creatingGroupUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+
+		switch msg.String() {
+		case "enter":
+			name := m.groupInput.Value()
+
+			if name != "" {
+				m.creatingGroup = false
+				m.groupInput.Reset()
+				m.statusMessage = "Creating group " + name + "..."
+				return m, createGroupCmd(m.queries, name)
+			}
+
+			m.creatingGroup = false
+			return m, nil
+
+		case "esc":
+			m.creatingGroup = false
+			m.groupInput.Reset()
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.groupInput, cmd = m.groupInput.Update(msg)
+	return m, cmd
+}
+
+// --- Views ---
+
 func (m model) View() string {
 	var s strings.Builder
 
 	if m.creatingGroup {
-		s.WriteString("Create New Group\n\n")
-		s.WriteString(m.groupInput.View())
-		s.WriteString("\n\n(esc to cancel, enter to create)")
-		return s.String()
+		return m.createGroupView()
 	}
-
-	if m.assigning {
-		s.WriteString("Assign to Group\n\n")
-		if len(m.groups) == 0 {
-			s.WriteString("No groups found. Press 'c' to create one.")
-		} else {
-			for i, group := range m.groups {
-				cursor := " "
-				if m.groupCursor == i {
-					cursor = ">"
-				}
-				fmt.Fprintf(&s, "%s %s\n", cursor, group)
-			}
-		}
-		s.WriteString("\n(esc to cancel, enter to assign)")
-		return s.String()
-	}
-
 	if m.adding {
-		s.WriteString("Add New Package\n\n")
-
-		for i := range m.inputs {
-			s.WriteString(m.inputs[i].View())
-			if i < len(m.inputs)-1 {
-				s.WriteRune('\n')
-			}
-		}
-
-		installCheck := "[ ]"
-		if m.installFlag {
-			installCheck = "[x]"
-		}
-
-		forceCheck := "[ ]"
-		if m.forceFlag {
-			forceCheck = "[x]"
-		}
-
-		fmt.Fprintf(&s, "\n\n%s Install immediately (ctrl+g)", installCheck)
-		fmt.Fprintf(&s, "\n%s Force update (ctrl+f)", forceCheck)
-		s.WriteString("\n\n(esc to cancel, enter to next/submit)")
-		return s.String()
+		return m.addPackageView()
+	}
+	if m.assigning {
+		return m.assignGroupView()
 	}
 
-	s.WriteString("GOPK MANAGER\n\n")
+	switch m.view {
+	case viewPackages:
+		s.WriteString(m.packageView("GOPK MANAGER"))
+	case viewGroupPackages:
+		s.WriteString(m.packageView("Group: " + m.activeGroup.Name))
+	case viewGroups:
+		s.WriteString(m.groupListView())
+	}
 
 	if m.installing {
-		fmt.Fprintf(&s, " %s Installing packages...\n\n", m.spinner.View())
-		if m.statusMessage != "" {
-			s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(m.statusMessage) + "\n")
-		}
-		return s.String()
+		s.WriteString("\n")
+		s.WriteString(m.installingView())
 	}
 
-	statusStyle := lipgloss.NewStyle().Width(6).PaddingRight(1)
-	nameStyle := lipgloss.NewStyle().Width(30).PaddingRight(2).Foreground(lipgloss.Color("205")).Bold(true)
-	urlStyle := lipgloss.NewStyle().Width(50).PaddingRight(2).Foreground(lipgloss.Color("240"))
-	freqStyle := lipgloss.NewStyle().Width(6).Align(lipgloss.Right).Foreground(lipgloss.Color("240"))
+	if m.searching {
+		s.WriteString("\n")
+		s.WriteString(m.searchingView())
+	}
 
-	header := lipgloss.JoinHorizontal(lipgloss.Left,
+	if m.statusMessage != "" {
+		s.WriteString("\n")
+		s.WriteString(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("205")).
+				Render(m.statusMessage),
+		)
+		s.WriteRune('\n')
+	}
+
+	help := m.helpText()
+	if help != "" {
+		s.WriteString("\n")
+		s.WriteString(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240")).
+				Render(help),
+		)
+		s.WriteRune('\n')
+	}
+
+	return s.String()
+}
+
+func (m model) groupListView() string {
+	var s strings.Builder
+
+	s.WriteString("Groups\n\n")
+
+	if len(m.groups) == 0 {
+		s.WriteString("No groups found. Press 'c' to create one.\n")
+	} else {
+		for i, g := range m.groups {
+			cursor := " "
+			if i == m.groupCursor {
+				cursor = ">"
+			}
+			fmt.Fprintf(&s, "%s %s\n", cursor, g.Name)
+		}
+	}
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Render("\nenter open  esc back  c create\n")
+
+	s.WriteString(help)
+
+	return s.String()
+}
+
+func (m model) installingView() string {
+	var s strings.Builder
+	fmt.Fprintf(&s, " %s Installing packages...\n\n", m.spinner.View())
+	return s.String()
+}
+
+func (m model) searchingView() string {
+	var s strings.Builder
+	s.WriteString("\n" + m.searchInput.View())
+	return s.String()
+}
+
+func (m model) addPackageView() string {
+	var s strings.Builder
+	s.WriteString("Add New Package\n\n")
+
+	for i := range m.inputs {
+		s.WriteString(m.inputs[i].View())
+		if i < len(m.inputs)-1 {
+			s.WriteRune('\n')
+		}
+	}
+
+	installCheck := "[ ]"
+	if m.installFlag {
+		installCheck = "[x]"
+	}
+
+	forceCheck := "[ ]"
+	if m.forceFlag {
+		forceCheck = "[x]"
+	}
+
+	fmt.Fprintf(&s, "\n\n%s Install immediately (ctrl+g)", installCheck)
+	fmt.Fprintf(&s, "\n%s Force update (ctrl+f)", forceCheck)
+	s.WriteString("\n\n(esc to cancel, enter to next/submit)")
+	return s.String()
+}
+
+func (m model) assignGroupView() string {
+	var s strings.Builder
+	s.WriteString("Assign to Group\n\n")
+	if len(m.groups) == 0 {
+		s.WriteString("No groups found. Press 'c' to create one.")
+	} else {
+		for i, group := range m.groups {
+			cursor := " "
+			if m.groupCursor == i {
+				cursor = ">"
+			}
+			fmt.Fprintf(&s, "%s %s\n", cursor, group.Name)
+		}
+	}
+	s.WriteString("\n(esc to cancel, enter to assign)")
+	return s.String()
+}
+
+func (m model) createGroupView() string {
+	var s strings.Builder
+	s.WriteString("Create New Group\n\n")
+	s.WriteString(m.groupInput.View())
+	s.WriteString("\n\n(esc to cancel, enter to create)")
+	return s.String()
+}
+
+func (m model) packageView(title string) string {
+	var s strings.Builder
+
+	s.WriteString(title)
+	s.WriteString("\n\n")
+
+	statusStyle := lipgloss.NewStyle().Width(6).PaddingRight(1)
+	nameStyle := lipgloss.NewStyle().
+		Width(30).
+		PaddingRight(2).
+		Foreground(lipgloss.Color("205")).
+		Bold(true)
+
+	urlStyle := lipgloss.NewStyle().
+		Width(50).
+		PaddingRight(2).
+		Foreground(lipgloss.Color("240"))
+
+	freqStyle := lipgloss.NewStyle().
+		Width(6).
+		Align(lipgloss.Right).
+		Foreground(lipgloss.Color("240"))
+
+	header := lipgloss.JoinHorizontal(
+		lipgloss.Left,
 		statusStyle.Render(""),
 		nameStyle.Render("PACKAGE"),
 		urlStyle.Render("REPOSITORY URL"),
 		freqStyle.Render("FREQ"),
 	)
 
-	headerStr := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(lipgloss.Color("240")).
-		Render(header)
+	s.WriteString(
+		lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(lipgloss.Color("240")).
+			Render(header),
+	)
+	s.WriteRune('\n')
 
-	s.WriteString(headerStr + "\n")
+	// Avoid crash if choices are empty
+	if len(m.filtered) == 0 {
+		s.WriteString(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240")).
+				Render("  No packages found."),
+		)
+		s.WriteRune('\n')
+		return s.String()
+	}
 
-	for i, choice := range m.filtered {
+	for i, pkg := range m.filtered {
 		cursor := " "
 		if m.cursor == i {
 			cursor = ">"
 		}
 
 		checked := " "
-		if _, ok := m.selected[i]; ok {
+		if _, ok := m.selected[pkg]; ok {
 			checked = "x"
 		}
 
 		status := fmt.Sprintf("%s [%s]", cursor, checked)
 
-		url := choice.Url
+		url := pkg.Url
 		if len(url) > 48 {
 			url = url[:45] + "..."
 		}
 
-		row := lipgloss.JoinHorizontal(lipgloss.Left,
+		row := lipgloss.JoinHorizontal(
+			lipgloss.Left,
 			statusStyle.Render(status),
-			nameStyle.Render(choice.Name),
+			nameStyle.Render(pkg.Name),
 			urlStyle.Render(url),
-			freqStyle.Render(fmt.Sprintf("%d", choice.Freq.Int64)),
+			freqStyle.Render(fmt.Sprintf("%d", pkg.Freq.Int64)),
 		)
 
-		if m.cursor == i {
-			row = lipgloss.NewStyle().Background(lipgloss.Color("236")).Render(row)
+		rowStyle := lipgloss.NewStyle().Width(94)
+
+		if _, ok := m.selected[pkg]; ok {
+			rowStyle = rowStyle.Foreground(lipgloss.Color("151"))
 		}
 
-		s.WriteString(row + "\n")
-	}
+		if m.cursor == i {
+			rowStyle = rowStyle.
+				Background(lipgloss.Color("236")).
+				Foreground(lipgloss.Color("255"))
+		}
 
-	if m.searching {
-		s.WriteString("\n" + m.searchInput.View())
-	} else {
-		helpText := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("\nPress '/' search, '+' add, 'a' assign, 'c' create group, 'i' install, 'q' quit.\n")
-		s.WriteString(helpText)
-	}
+		row = rowStyle.Render(row)
 
-	if m.statusMessage != "" && !m.installing && !m.searching {
-		s.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(m.statusMessage) + "\n")
-	}
+		s.WriteString(row)
+		s.WriteRune('\n')
 
+	}
 	return s.String()
+}
+
+func updateStatsCmd(q *data.Queries, urls []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		for _, u := range urls {
+			if err := q.UpdatePackageUsage(ctx, u); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 func (m *model) updateFocus() {
@@ -551,6 +922,23 @@ func (m *model) updateFocus() {
 	}
 }
 
+func (m model) helpText() string {
+	switch m.view {
+
+	case viewPackages:
+		return "/: search   +: add   a: assign to group   c: create group   i: install   q: quit"
+
+	case viewGroups:
+		return "space/enter: open   c: create   esc/q: back"
+
+	case viewGroupPackages:
+		return "space: select   i: install   d: remove   esc back"
+
+	default:
+		return ""
+	}
+}
+
 func (m *model) resetForm() {
 	for i := range m.inputs {
 		m.inputs[i].Reset()
@@ -561,14 +949,17 @@ func (m *model) resetForm() {
 	m.updateFocus()
 }
 
-func installPackagesCmd(pkgs []string, debug bool, q *data.Queries) tea.Cmd {
+func installPackagesCmd(pkgs []string) tea.Cmd {
 	return func() tea.Msg {
-		err := service.Get(pkgs, q)
-		return installFinishedMsg{err: err}
+		err := service.GetFromUrl(pkgs)
+		return installFinishedMsg{
+			err:           err,
+			installedUrls: pkgs,
+		}
 	}
 }
 
-func addPackageCmd(q *data.Queries, url, name, version string, install, force, debug bool) tea.Cmd {
+func addPackageCmd(q *data.Queries, url, name, version string, install, force bool) tea.Cmd {
 	return func() tea.Msg {
 		err := service.Add(url, name, version, install, force, q)
 		return packageAddedMsg{err: err}
@@ -577,35 +968,52 @@ func addPackageCmd(q *data.Queries, url, name, version string, install, force, d
 
 func createGroupCmd(q *data.Queries, name string) tea.Cmd {
 	return func() tea.Msg {
-		// err := service.CreateGroup(q, name)
-		return groupCreatedMsg{name: name, err: nil}
+		err := service.CreateGroup(q, name)
+		return groupCreatedMsg{name: name, err: err}
 	}
 }
 
 func assignToGroupCmd(q *data.Queries, pkgs []string, group string) tea.Cmd {
 	return func() tea.Msg {
-		// err := service.AssignToGroup(q, pkgs, group)
-		return groupAssignedMsg{group: group, count: len(pkgs), err: nil}
+		err := service.AssignToGroup(q, pkgs, group)
+		return groupAssignedMsg{group: group, count: len(pkgs), err: err}
 	}
 }
 
 func fetchGroupsCmd(q *data.Queries) tea.Cmd {
 	return func() tea.Msg {
-		// groups, err := service.ListGroups(q)
-		groups := []string{"work", "personal", "dev-tools"}
-		return groupsListMsg{groups: groups}
+		groups, err := service.ListGroups(q)
+		return groupsListMsg{groups: groups, err: err}
 	}
 }
 
-func refreshListCmd(q *data.Queries) tea.Cmd {
+func refreshListCmd(q *data.Queries, mode sortMode) tea.Cmd {
 	return func() tea.Msg {
-		packages, _ := service.List(q, -1, false)
-		return packagesListMsg{packages: packages}
+		var pkgs []data.Package
+		var err error
+
+		switch mode {
+		case sortByFrequency:
+			pkgs, err = q.ListPackagesByFrequency(context.Background(), -1)
+		case sortByLastUsed:
+			pkgs, err = q.ListPackagesByLastUsed(context.Background(), -1)
+		default:
+			pkgs, err = service.List(q, -1, false)
+		}
+
+		if err != nil {
+			log.Printf("error refreshing list: %v", err)
+			return packagesListMsg{packages: []data.Package{}}
+		}
+		return packagesListMsg{packages: pkgs}
 	}
 }
 
 func Start(q *data.Queries) error {
-	p := tea.NewProgram(initialModel(q))
+	p := tea.NewProgram(
+		initialModel(q),
+		tea.WithAltScreen(),
+	)
 	if _, err := p.Run(); err != nil {
 		return err
 	}
