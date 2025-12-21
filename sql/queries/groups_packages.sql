@@ -1,4 +1,3 @@
-
 -- name: ListPackagesByGroup :many
 SELECT p.*
 FROM packages p

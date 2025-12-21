@@ -15,6 +15,17 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+// --- Global Color Definitions ---
+var (
+	colorPrimary   = lipgloss.Color("205") // Pink/Magenta
+	colorSecondary = lipgloss.Color("240") // Grey
+	colorSelected  = lipgloss.Color("151") // Light Green
+	colorCursorBg  = lipgloss.Color("236") // Dark Grey background
+	colorCursorFg  = lipgloss.Color("255") // White foreground
+)
+
+// --------------------------------
+
 type installFinishedMsg struct {
 	installedUrls []string
 	err           error
@@ -52,9 +63,9 @@ type viewMode int
 type sortMode int
 
 const (
-	viewPackages viewMode = iota
-	viewGroups
-	viewGroupPackages
+	packageView viewMode = iota
+	groupView
+	groupPackageView
 )
 
 const (
@@ -113,7 +124,8 @@ func initialModel(q *data.Queries) model {
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	// Updated to use global colorPrimary
+	s.Style = lipgloss.NewStyle().Foreground(colorPrimary)
 
 	inputs := make([]textinput.Model, 3)
 
@@ -122,7 +134,8 @@ func initialModel(q *data.Queries) model {
 	inputs[0].Focus()
 	inputs[0].CharLimit = 156
 	inputs[0].Width = 50
-	inputs[0].PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	// Updated to use global colorPrimary
+	inputs[0].PromptStyle = lipgloss.NewStyle().Foreground(colorPrimary)
 
 	inputs[1] = textinput.New()
 	inputs[1].Placeholder = "Name (optional, Enter to skip)"
@@ -152,7 +165,7 @@ func initialModel(q *data.Queries) model {
 		selected:      make(map[data.Package]struct{}),
 		sm:            sortByLastUsed,
 		spinner:       s,
-		view:          viewPackages,
+		view:          packageView,
 		inputs:        inputs,
 		searchInput:   si,
 		groupInput:    gi,
@@ -178,6 +191,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.installing {
+		switch msg := msg.(type) {
+		case spinner.TickMsg:
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		case installFinishedMsg, installGroupMsg:
+		default:
+			return m, nil
+		}
+	}
+
 	if m.creatingGroup {
 		return m.creatingGroupUpdate(msg)
 	}
@@ -198,10 +223,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.sm = sortByFrequency
 			switch m.view {
-			case viewPackages:
+			case packageView:
 				return m, refreshListCmd(m.queries, m.sm)
 
-			case viewGroupPackages:
+			case groupPackageView:
 				return m, sortGroupByFreq(context.Background(), m.queries, m.activeGroup.Name)
 
 			default:
@@ -211,38 +236,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l":
 			m.sm = sortByLastUsed
 			switch m.view {
-			case viewPackages:
+			case packageView:
 				return m, refreshListCmd(m.queries, m.sm)
 
-			case viewGroupPackages:
+			case groupPackageView:
 				return m, sortGroupByLastUsed(context.Background(), m.queries, m.activeGroup.Name)
 			}
 			return m, nil
 
 		case "d":
-			if m.view == viewGroupPackages && len(m.selected) > 0 {
+			if m.view == groupPackageView && len(m.selected) > 0 {
 				m.statusMessage = "Removing packages from group..."
 				return m, removePackagesFromGroups(m.queries, m.selected, m.activeGroup)
 			}
 
 		case "g":
-			if m.view == viewPackages {
-				m.view = viewGroups
+			if m.view == packageView {
+				m.view = groupView
 				m.cursorGroup = 0
 				return m, fetchGroupsCmd(m.queries)
 			}
 
 		case "q", "esc":
 			switch m.view {
-			case viewGroupPackages:
-				m.view = viewGroups
+			case groupPackageView:
+				m.view = groupView
 				m.activeGroup = data.Group{}
 				m.cursorPackage = 0
 				m.selected = make(map[data.Package]struct{})
 				return m, nil
 
-			case viewGroups:
-				m.view = viewPackages
+			case groupView:
+				m.view = packageView
 				m.cursorPackage = 0
 				return m, refreshListCmd(m.queries, m.sm)
 
@@ -255,7 +280,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up", "k":
 			switch m.view {
-			case viewGroups:
+			case groupView:
 				if m.cursorGroup > 0 {
 					m.cursorGroup--
 				}
@@ -268,7 +293,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down", "j":
 			switch m.view {
-			case viewGroups:
+			case groupView:
 				if m.cursorGroup < len(m.groups)-1 {
 					m.cursorGroup++
 				}
@@ -305,30 +330,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput.SetValue("")
 			return m, textinput.Blink
 
+		case "x":
+			switch m.view {
+			case groupView:
+
+			default:
+			}
+
 		case "i":
-			if len(m.selected) > 0 {
+			switch m.view {
+			case groupView:
 				m.installing = true
 				m.statusMessage = ""
-				pkgs := make([]string, 0, len(m.selected))
-				for pkg := range m.selected {
-					pkgs = append(pkgs, pkg.Url)
+				g := m.groups[m.cursorGroup]
+				return m, tea.Batch(installGroupCmd(context.Background(), m.queries, g.Name), m.spinner.Tick)
+
+			default:
+				if len(m.selected) > 0 {
+					m.installing = true
+					m.statusMessage = ""
+					pkgs := make([]string, 0, len(m.selected))
+					for pkg := range m.selected {
+						pkgs = append(pkgs, pkg.Url)
+					}
+					m.selected = make(map[data.Package]struct{})
+					return m, tea.Batch(installPackagesCmd(pkgs), m.spinner.Tick)
 				}
-				m.selected = make(map[data.Package]struct{})
-				return m, tea.Batch(installPackagesCmd(pkgs), m.spinner.Tick)
+
 			}
 
 		case "enter":
 			switch m.view {
-			case viewGroups:
+			case groupView:
 				if len(m.groups) == 0 {
 					return m, nil
 				}
 				m.activeGroup = m.groups[m.cursorGroup]
-				m.view = viewGroupPackages
+				m.view = groupPackageView
 				m.cursorPackage = 0
 				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
 
-			case viewGroupPackages, viewPackages:
+			case groupPackageView, packageView:
 				if len(m.filtered) > 0 {
 					url := m.filtered[m.cursorPackage]
 					if _, ok := m.selected[url]; ok {
@@ -341,12 +383,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case " ":
 			switch m.view {
-			case viewGroups:
+			case groupView:
 				if len(m.groups) == 0 {
 					return m, nil
 				}
 				m.activeGroup = m.groups[m.cursorGroup]
-				m.view = viewGroupPackages
+				m.view = groupPackageView
 				m.cursorPackage = 0
 				return m, fetchPackagesByGroupCmd(m.queries, m.activeGroup.Name)
 
@@ -362,7 +404,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		}
-
+	case installGroupMsg:
+		if msg.err != nil {
+			m.statusMessage = "Error: " + msg.err.Error()
+		} else {
+			m.statusMessage = "Group installed successfully"
+		}
+		m.installing = false
+		return m, nil
 	case installFinishedMsg:
 		m.installing = false
 		if msg.err != nil {
@@ -458,6 +507,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func installGroupCmd(ctx context.Context, queries *data.Queries, groupName string) tea.Cmd {
+	return func() tea.Msg {
+		return installGroupMsg{
+			err: service.InstallGroup(ctx, queries, groupName),
+		}
+	}
+}
+
+type installGroupMsg struct {
+	err error
 }
 
 func sortGroupByLastUsed(context context.Context, queries *data.Queries, groupName string) tea.Cmd {
@@ -681,11 +742,11 @@ func (m model) View() string {
 	}
 
 	switch m.view {
-	case viewPackages:
+	case packageView:
 		s.WriteString(m.packageView("GOPK MANAGER"))
-	case viewGroupPackages:
+	case groupPackageView:
 		s.WriteString(m.packageView("Group: " + m.activeGroup.Name))
-	case viewGroups:
+	case groupView:
 		s.WriteString(m.groupListView())
 	}
 
@@ -701,9 +762,10 @@ func (m model) View() string {
 
 	if m.statusMessage != "" {
 		s.WriteString("\n")
+		// Updated to use global colorPrimary
 		s.WriteString(
 			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("205")).
+				Foreground(colorPrimary).
 				Render(m.statusMessage),
 		)
 		s.WriteRune('\n')
@@ -712,9 +774,10 @@ func (m model) View() string {
 	help := m.helpText()
 	if help != "" {
 		s.WriteString("\n")
+		// Updated to use global colorSecondary
 		s.WriteString(
 			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")).
+				Foreground(colorSecondary).
 				Render(help),
 		)
 		s.WriteRune('\n')
@@ -740,9 +803,10 @@ func (m model) groupListView() string {
 		}
 	}
 
+	// Updated to use global colorSecondary
 	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Render("\nenter open  esc back  c create\n")
+		Foreground(colorSecondary).
+		Render("\nenter/space: open  esc/q: back  c create\n")
 
 	s.WriteString(help)
 
@@ -824,18 +888,18 @@ func (m model) packageView(title string) string {
 	nameStyle := lipgloss.NewStyle().
 		Width(30).
 		PaddingRight(2).
-		Foreground(lipgloss.Color("205")).
+		Foreground(colorPrimary). // Global color
 		Bold(true)
 
 	urlStyle := lipgloss.NewStyle().
 		Width(50).
 		PaddingRight(2).
-		Foreground(lipgloss.Color("240"))
+		Foreground(colorSecondary) // Global color
 
 	freqStyle := lipgloss.NewStyle().
 		Width(6).
 		Align(lipgloss.Right).
-		Foreground(lipgloss.Color("240"))
+		Foreground(colorSecondary) // Global color
 
 	header := lipgloss.JoinHorizontal(
 		lipgloss.Left,
@@ -848,7 +912,7 @@ func (m model) packageView(title string) string {
 	s.WriteString(
 		lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(lipgloss.Color("240")).
+			BorderForeground(colorSecondary). // Global color
 			Render(header),
 	)
 	s.WriteRune('\n')
@@ -856,7 +920,7 @@ func (m model) packageView(title string) string {
 	if len(m.filtered) == 0 {
 		s.WriteString(
 			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")).
+				Foreground(colorSecondary). // Global color
 				Render("  No packages found."),
 		)
 		s.WriteRune('\n')
@@ -892,13 +956,13 @@ func (m model) packageView(title string) string {
 		rowStyle := lipgloss.NewStyle().Width(94)
 
 		if _, ok := m.selected[pkg]; ok {
-			rowStyle = rowStyle.Foreground(lipgloss.Color("151"))
+			rowStyle = rowStyle.Foreground(colorSelected) // Global color
 		}
 
 		if m.cursorPackage == i {
 			rowStyle = rowStyle.
-				Background(lipgloss.Color("236")).
-				Foreground(lipgloss.Color("255"))
+				Background(colorCursorBg). // Global color
+				Foreground(colorCursorFg)  // Global color
 		}
 
 		row = rowStyle.Render(row)
@@ -926,10 +990,12 @@ func (m *model) updateFocus() {
 	for i := 0; i < len(m.inputs); i++ {
 		if i == m.focusIndex {
 			m.inputs[i].Focus()
-			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+			// Updated to use global colorPrimary
+			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(colorPrimary)
 		} else {
 			m.inputs[i].Blur()
-			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			// Updated to use global colorSecondary
+			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(colorSecondary)
 		}
 	}
 }
@@ -937,14 +1003,14 @@ func (m *model) updateFocus() {
 func (m model) helpText() string {
 	switch m.view {
 
-	case viewPackages:
-		return "/: search   +: add   a: assign to group   c: create group   i: install   q: quit"
+	case packageView:
+		return "/: search	g: group   +: add   a: assign to group   c: create group   i: install   q: quit"
 
-	case viewGroups:
-		return "space/enter: open   c: create   esc/q: back"
+	case groupView:
+		return "space/enter: open	i: install   c: create	esc/q: back"
 
-	case viewGroupPackages:
-		return "space: select   i: install   d: remove   esc back"
+	case groupPackageView:
+		return "space: select   i: install   d: remove from group  esc/q: back"
 
 	default:
 		return ""

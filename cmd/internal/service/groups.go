@@ -79,5 +79,6 @@ func InstallGroup(ctx context.Context, q *data.Queries, groupName string) error 
 	for _, pkg := range pkgs {
 		urls = append(urls, pkg.Url)
 	}
+
 	return GetFromUrl(urls)
 }
