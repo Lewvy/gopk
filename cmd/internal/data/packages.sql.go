@@ -12,9 +12,11 @@ import (
 )
 
 const addPackageWithVersion = `-- name: AddPackageWithVersion :one
-INSERT into packages (name, url, version) VALUES (
-	?, ?, ?
-	) RETURNING id, name, url, version, freq, created_at, updated_at, last_used
+INSERT INTO packages (name, url, version) 
+VALUES (?, ?, ?)
+ON CONFLICT (name) DO UPDATE 
+SET is_deleted = false, url = excluded.url, version = excluded.version
+RETURNING id, name, url, version, freq, created_at, updated_at, last_used, is_deleted
 `
 
 type AddPackageWithVersionParams struct {
@@ -35,12 +37,43 @@ func (q *Queries) AddPackageWithVersion(ctx context.Context, arg AddPackageWithV
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsed,
+		&i.IsDeleted,
 	)
 	return i, err
 }
 
+const cleanDatabase = `-- name: CleanDatabase :exec
+DELETE from packages
+where is_deleted = true
+`
+
+func (q *Queries) CleanDatabase(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, cleanDatabase)
+	return err
+}
+
+const deletePackagesByName = `-- name: DeletePackagesByName :exec
+DELETE FROM packages
+WHERE name IN (/*SLICE:names*/?)
+`
+
+func (q *Queries) DeletePackagesByName(ctx context.Context, names []string) error {
+	query := deletePackagesByName
+	var queryParams []interface{}
+	if len(names) > 0 {
+		for _, v := range names {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:names*/?", strings.Repeat(",?", len(names))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:names*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
 const getIDByName = `-- name: GetIDByName :one
-select id from packages where name = ?
+SELECT id FROM packages WHERE name = ?
 `
 
 func (q *Queries) GetIDByName(ctx context.Context, name string) (int64, error) {
@@ -51,7 +84,7 @@ func (q *Queries) GetIDByName(ctx context.Context, name string) (int64, error) {
 }
 
 const getPackageByID = `-- name: GetPackageByID :one
-select id, name, url, version, freq, created_at, updated_at, last_used from packages where id = ?
+SELECT id, name, url, version, freq, created_at, updated_at, last_used, is_deleted FROM packages WHERE id = ? and is_deleted = false
 `
 
 func (q *Queries) GetPackageByID(ctx context.Context, id int64) (Package, error) {
@@ -66,12 +99,13 @@ func (q *Queries) GetPackageByID(ctx context.Context, id int64) (Package, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsed,
+		&i.IsDeleted,
 	)
 	return i, err
 }
 
 const getPackageByName = `-- name: GetPackageByName :one
-select id, name, url, version, freq, created_at, updated_at, last_used from packages where name = ?
+SELECT id, name, url, version, freq, created_at, updated_at, last_used, is_deleted FROM packages WHERE name =? and is_deleted = false
 `
 
 func (q *Queries) GetPackageByName(ctx context.Context, name string) (Package, error) {
@@ -86,8 +120,22 @@ func (q *Queries) GetPackageByName(ctx context.Context, name string) (Package, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsed,
+		&i.IsDeleted,
 	)
 	return i, err
+}
+
+const getPackageIDByURL = `-- name: GetPackageIDByURL :one
+SELECT id
+FROM packages
+WHERE url = ?
+`
+
+func (q *Queries) GetPackageIDByURL(ctx context.Context, url string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getPackageIDByURL, url)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getURLsByNames = `-- name: GetURLsByNames :many
@@ -136,7 +184,8 @@ func (q *Queries) GetURLsByNames(ctx context.Context, names []string) ([]GetURLs
 }
 
 const listPackagesByFrequency = `-- name: ListPackagesByFrequency :many
-SELECT id, name, url, version, freq, created_at, updated_at, last_used FROM packages
+SELECT id, name, url, version, freq, created_at, updated_at, last_used, is_deleted FROM packages
+WHERE is_deleted = false
 ORDER BY freq DESC
 LIMIT ?
 `
@@ -159,6 +208,7 @@ func (q *Queries) ListPackagesByFrequency(ctx context.Context, limit int64) ([]P
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsed,
+			&i.IsDeleted,
 		); err != nil {
 			return nil, err
 		}
@@ -174,7 +224,8 @@ func (q *Queries) ListPackagesByFrequency(ctx context.Context, limit int64) ([]P
 }
 
 const listPackagesByLastUsed = `-- name: ListPackagesByLastUsed :many
-SELECT id, name, url, version, freq, created_at, updated_at, last_used FROM packages
+SELECT id, name, url, version, freq, created_at, updated_at, last_used, is_deleted FROM packages
+WHERE is_deleted = false
 ORDER BY last_used DESC
 LIMIT ?
 `
@@ -197,6 +248,7 @@ func (q *Queries) ListPackagesByLastUsed(ctx context.Context, limit int64) ([]Pa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsed,
+			&i.IsDeleted,
 		); err != nil {
 			return nil, err
 		}
@@ -211,11 +263,53 @@ func (q *Queries) ListPackagesByLastUsed(ctx context.Context, limit int64) ([]Pa
 	return items, nil
 }
 
+const markDeleteByName = `-- name: MarkDeleteByName :exec
+UPDATE packages
+SET is_deleted = true, updated_at = CURRENT_TIMESTAMP
+WHERE name IN (/*SLICE:names*/?)
+`
+
+func (q *Queries) MarkDeleteByName(ctx context.Context, names []string) error {
+	query := markDeleteByName
+	var queryParams []interface{}
+	if len(names) > 0 {
+		for _, v := range names {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:names*/?", strings.Repeat(",?", len(names))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:names*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
+const markDeleteFalse = `-- name: MarkDeleteFalse :exec
+UPDATE packages
+set is_deleted = false, updated_at = CURRENT_TIMESTAMP
+where name in (/*SLICE:names*/?)
+`
+
+func (q *Queries) MarkDeleteFalse(ctx context.Context, names []string) error {
+	query := markDeleteFalse
+	var queryParams []interface{}
+	if len(names) > 0 {
+		for _, v := range names {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:names*/?", strings.Repeat(",?", len(names))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:names*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
 const updatePackage = `-- name: UpdatePackage :one
 UPDATE packages
-set name = ?, url = ?, version = ?
-where id = ?
-RETURNING id, name, url, version, freq, created_at, updated_at, last_used
+SET name = ?, url = ?, version = ?
+WHERE id = ?
+RETURNING id, name, url, version, freq, created_at, updated_at, last_used, is_deleted
 `
 
 type UpdatePackageParams struct {
@@ -242,15 +336,16 @@ func (q *Queries) UpdatePackage(ctx context.Context, arg UpdatePackageParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsed,
+		&i.IsDeleted,
 	)
 	return i, err
 }
 
 const updatePackageByName = `-- name: UpdatePackageByName :one
 UPDATE packages
-set url = ?, version = ?
-where name = ?
-RETURNING id, name, url, version, freq, created_at, updated_at, last_used
+SET url = ?, version = ?
+WHERE name = ?
+RETURNING id, name, url, version, freq, created_at, updated_at, last_used, is_deleted
 `
 
 type UpdatePackageByNameParams struct {
@@ -271,6 +366,7 @@ func (q *Queries) UpdatePackageByName(ctx context.Context, arg UpdatePackageByNa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsed,
+		&i.IsDeleted,
 	)
 	return i, err
 }

@@ -1,9 +1,11 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE groups (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id        	INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL UNIQUE,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	is_deleted	integer default 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at 	TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE group_packages (
@@ -23,7 +25,6 @@ CREATE TABLE group_packages (
 
 CREATE INDEX idx_groups_name ON groups(name);
 CREATE INDEX idx_group_packages_group ON group_packages(group_id);
-CREATE INDEX idx_group_packages_package ON group_packages(package_id);
 -- +goose StatementEnd
 
 -- +goose Down

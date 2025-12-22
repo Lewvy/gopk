@@ -14,7 +14,6 @@ import (
 )
 
 func getDataDir() (string, error) {
-
 	if custom := os.Getenv("GOPK_DB_DIR"); custom != "" {
 		return custom, nil
 	}
@@ -69,8 +68,7 @@ func InitDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func ResetDB(db *sql.DB) error {
-
+func ResetDB() error {
 	path, err := getDataDir()
 	if err != nil {
 		return err
@@ -83,9 +81,20 @@ func ResetDB(db *sql.DB) error {
 	fmt.Printf("Backup saved to: %s.bak\n", dbPath)
 
 	goose.SetBaseFS(migrations.FS)
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return err
+	}
+
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return err
+	}
+
 	if err := goose.Reset(db, "schema"); err != nil {
 		return fmt.Errorf("reset failed: %w", err)
 	}
+	fmt.Println("reset done")
 
 	if err := goose.Up(db, "schema"); err != nil {
 		return fmt.Errorf("migration up failed: %w", err)

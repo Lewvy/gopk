@@ -15,16 +15,13 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// --- Global Color Definitions ---
 var (
-	colorPrimary   = lipgloss.Color("205") // Pink/Magenta
-	colorSecondary = lipgloss.Color("240") // Grey
-	colorSelected  = lipgloss.Color("151") // Light Green
-	colorCursorBg  = lipgloss.Color("236") // Dark Grey background
-	colorCursorFg  = lipgloss.Color("255") // White foreground
+	colorPrimary   = lipgloss.Color("205")
+	colorSecondary = lipgloss.Color("240")
+	colorSelected  = lipgloss.Color("151")
+	colorCursorBg  = lipgloss.Color("236")
+	colorCursorFg  = lipgloss.Color("255")
 )
-
-// --------------------------------
 
 type installFinishedMsg struct {
 	installedUrls []string
@@ -88,6 +85,8 @@ type model struct {
 	spinner  spinner.Model
 	view     viewMode
 
+	err error
+
 	activeGroup data.Group
 
 	installing    bool
@@ -107,9 +106,8 @@ type model struct {
 
 	groups []data.Group
 
-	cursorGroup        int
-	cursorGroupPackage int
-	cursorPackage      int
+	cursorGroup   int
+	cursorPackage int
 
 	installFlag bool
 	forceFlag   bool
@@ -124,7 +122,6 @@ func initialModel(q *data.Queries) model {
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	// Updated to use global colorPrimary
 	s.Style = lipgloss.NewStyle().Foreground(colorPrimary)
 
 	inputs := make([]textinput.Model, 3)
@@ -134,7 +131,6 @@ func initialModel(q *data.Queries) model {
 	inputs[0].Focus()
 	inputs[0].CharLimit = 156
 	inputs[0].Width = 50
-	// Updated to use global colorPrimary
 	inputs[0].PromptStyle = lipgloss.NewStyle().Foreground(colorPrimary)
 
 	inputs[1] = textinput.New()
@@ -333,8 +329,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			switch m.view {
 			case groupView:
+				m.statusMessage = "deleting group: " + m.groups[m.cursorGroup].Name
+				if err := service.DeleteGroup(context.Background(), m.queries, m.groups[m.cursorGroup]); err != nil {
+					m.err = err
+					return m, nil
+				}
+
+				m.groupInput.Focus()
+				return m, nil
 
 			default:
+				pkgs := []string{}
+				for i := range m.selected {
+					pkgs = append(pkgs, i.Name)
+				}
+
+				if err := service.DeletePackage(context.Background(), m.queries, pkgs); err != nil {
+					m.err = err
+					return m, nil
+				}
+
+				m.err = nil
+				return m, refreshListCmd(m.queries, m.sm)
 			}
 
 		case "i":
@@ -802,13 +818,6 @@ func (m model) groupListView() string {
 			fmt.Fprintf(&s, "%s %s\n", cursor, g.Name)
 		}
 	}
-
-	// Updated to use global colorSecondary
-	help := lipgloss.NewStyle().
-		Foreground(colorSecondary).
-		Render("\nenter/space: open  esc/q: back  c create\n")
-
-	s.WriteString(help)
 
 	return s.String()
 }

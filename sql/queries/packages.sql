@@ -1,10 +1,12 @@
 -- name: AddPackageWithVersion :one
-INSERT into packages (name, url, version) VALUES (
-	?, ?, ?
-	) RETURNING *;
+INSERT INTO packages (name, url, version) 
+VALUES (?, ?, ?)
+ON CONFLICT (name) DO UPDATE 
+SET is_deleted = false, url = excluded.url, version = excluded.version
+RETURNING *;
 
 -- name: GetIDByName :one
-select id from packages where name = ?;
+SELECT id FROM packages WHERE name = ?;
 
 -- name: UpdatePackageUsage :exec
 UPDATE packages 
@@ -13,8 +15,8 @@ WHERE url = ?;
 
 -- name: UpdatePackageByName :one
 UPDATE packages
-set url = ?, version = ?
-where name = ?
+SET url = ?, version = ?
+WHERE name = ?
 RETURNING *;
 
 -- name: GetURLsByNames :many
@@ -24,23 +26,49 @@ WHERE name IN (sqlc.slice('names'));
 
 -- name: UpdatePackage :one
 UPDATE packages
-set name = ?, url = ?, version = ?
-where id = ?
+SET name = ?, url = ?, version = ?
+WHERE id = ?
 RETURNING *;
 
 -- name: ListPackagesByLastUsed :many
 SELECT * FROM packages
+WHERE is_deleted = false
 ORDER BY last_used DESC
 LIMIT ?;
 
+-- name: MarkDeleteByName :exec
+UPDATE packages
+SET is_deleted = true, updated_at = CURRENT_TIMESTAMP
+WHERE name IN (sqlc.slice('names'));
+
+-- name: MarkDeleteFalse :exec
+UPDATE packages
+set is_deleted = false, updated_at = CURRENT_TIMESTAMP
+where name in (sqlc.slice('names'));
+
+-- name: DeletePackagesByName :exec
+DELETE FROM packages
+WHERE name IN (sqlc.slice('names'));
+
+-- name: CleanDatabase :exec
+DELETE from packages
+where is_deleted = true;
+
+
+-- name: GetPackageIDByURL :one
+SELECT id
+FROM packages
+WHERE url = ?;
+
+
 -- name: ListPackagesByFrequency :many
 SELECT * FROM packages
+WHERE is_deleted = false
 ORDER BY freq DESC
 LIMIT ?;
 
 -- name: GetPackageByID :one
-select * from packages where id = ?;
+SELECT * FROM packages WHERE id = ? and is_deleted = false;
 
 -- name: GetPackageByName :one
-select * from packages where name = ?;
-
+SELECT * FROM packages WHERE name =? and is_deleted = false;

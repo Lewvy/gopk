@@ -36,19 +36,6 @@ func (q *Queries) GetGroupIDByName(ctx context.Context, name string) (int64, err
 	return id, err
 }
 
-const getPackageIDByURL = `-- name: GetPackageIDByURL :one
-SELECT id
-FROM packages
-WHERE url = ?
-`
-
-func (q *Queries) GetPackageIDByURL(ctx context.Context, url string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getPackageIDByURL, url)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const getPackageIDsByURLs = `-- name: GetPackageIDsByURLs :many
 SELECT id FROM packages
 WHERE url IN (/*SLICE:urls*/?)
@@ -88,11 +75,11 @@ func (q *Queries) GetPackageIDsByURLs(ctx context.Context, urls []string) ([]int
 }
 
 const listPackagesByGroup = `-- name: ListPackagesByGroup :many
-SELECT p.id, p.name, p.url, p.version, p.freq, p.created_at, p.updated_at, p.last_used
+SELECT p.id, p.name, p.url, p.version, p.freq, p.created_at, p.updated_at, p.last_used, p.is_deleted
 FROM packages p
 JOIN group_packages gp ON gp.package_id = p.id
 JOIN groups g ON g.id = gp.group_id
-WHERE g.name = ?
+WHERE g.name = ? and p.is_deleted = false
 ORDER BY p.name ASC
 `
 
@@ -114,6 +101,7 @@ func (q *Queries) ListPackagesByGroup(ctx context.Context, name string) ([]Packa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsed,
+			&i.IsDeleted,
 		); err != nil {
 			return nil, err
 		}

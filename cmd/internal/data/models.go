@@ -11,7 +11,9 @@ import (
 type Group struct {
 	ID        int64
 	Name      string
+	IsDeleted sql.NullInt64
 	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
 }
 
 type GroupPackage struct {
@@ -28,4 +30,5 @@ type Package struct {
 	CreatedAt sql.NullTime
 	UpdatedAt sql.NullTime
 	LastUsed  sql.NullTime
+	IsDeleted sql.NullInt64
 }

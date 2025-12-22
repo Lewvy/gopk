@@ -8,8 +8,8 @@ CREATE TABLE packages (
 	freq integer default 0,
 	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-
+	last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	is_deleted integer default FALSE
 );
 -- +goose StatementEnd
 

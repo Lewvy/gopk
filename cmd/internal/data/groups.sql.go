@@ -12,18 +12,34 @@ import (
 const createGroup = `-- name: CreateGroup :one
 INSERT INTO groups (name)
 VALUES (?)
-RETURNING id, name, created_at
+RETURNING id, name, is_deleted, created_at, updated_at
 `
 
 func (q *Queries) CreateGroup(ctx context.Context, name string) (Group, error) {
 	row := q.db.QueryRowContext(ctx, createGroup, name)
 	var i Group
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsDeleted,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
+const deleteGroup = `-- name: DeleteGroup :exec
+delete from groups
+where name = ?
+`
+
+func (q *Queries) DeleteGroup(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, deleteGroup, name)
+	return err
+}
+
 const listGroups = `-- name: ListGroups :many
-SELECT id, name, created_at
+SELECT id, name, is_deleted, created_at, updated_at
 FROM groups
 ORDER BY name ASC
 `
@@ -37,7 +53,13 @@ func (q *Queries) ListGroups(ctx context.Context) ([]Group, error) {
 	var items []Group
 	for rows.Next() {
 		var i Group
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.IsDeleted,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -3,17 +3,12 @@ SELECT p.*
 FROM packages p
 JOIN group_packages gp ON gp.package_id = p.id
 JOIN groups g ON g.id = gp.group_id
-WHERE g.name = ?
+WHERE g.name = ? and p.is_deleted = false
 ORDER BY p.name ASC;
 
 -- name: AssignPackageToGroup :exec
 INSERT OR IGNORE INTO group_packages (group_id, package_id)
 VALUES (?, ?);
-
--- name: GetPackageIDByURL :one
-SELECT id
-FROM packages
-WHERE url = ?;
 
 
 -- name: GetGroupIDByName :one

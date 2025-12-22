@@ -4,6 +4,7 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"database/sql"
 	"log"
 	"os"
 
@@ -14,16 +15,17 @@ import (
 )
 
 var queries *data.Queries
+var DB *sql.DB
 
 var rootCmd = &cobra.Command{
 	Use: "gopk",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		db, err := config.InitDB()
+		DB, err := config.InitDB()
 		if err != nil {
 			log.Fatalf("error initializing db: %q", err)
 		}
 
-		queries = data.New(db)
+		queries = data.New(DB)
 
 	},
 	Short: "A brief description of your application",
