@@ -754,7 +754,7 @@ func (m model) View() string {
 
 	switch m.view {
 	case packageView:
-		s.WriteString(m.packageView("GOPK MANAGER"))
+		s.WriteString(m.packageView("GOPK"))
 	case groupPackageView:
 		s.WriteString(m.packageView("Group: " + m.activeGroup.Name))
 	case groupView:
