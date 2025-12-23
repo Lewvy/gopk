@@ -13,9 +13,8 @@ import (
 // resetCmd represents the reset command
 var resetCmd = &cobra.Command{
 	Use:   "reset",
-	Short: "Permanently purge all packages marked as deleted",
-	Long: `The reset command performs a 'hard delete' on all packages and groups 
-currently marked as deleted in the database. 
+	Short: "Permanently purge all packages",
+	Long: `The reset command performs a 'hard delete' on all packages and groups. 
 
 WARNING: This action is irreversible. If you are using multi-device sync, 
 ensure all other devices have performed a sync BEFORE running this command, 

@@ -330,13 +330,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.view {
 			case groupView:
 				m.statusMessage = "deleting group: " + m.groups[m.cursorGroup].Name
-				if err := service.DeleteGroup(context.Background(), m.queries, m.groups[m.cursorGroup]); err != nil {
-					m.err = err
-					return m, nil
-				}
 
-				m.groupInput.Focus()
-				return m, nil
+				return m, tea.Batch(deletePackageCmd(context.Background(), m.queries, m.groups[m.cursorGroup]), m.spinner.Tick)
 
 			default:
 				pkgs := []string{}
@@ -897,18 +892,18 @@ func (m model) packageView(title string) string {
 	nameStyle := lipgloss.NewStyle().
 		Width(30).
 		PaddingRight(2).
-		Foreground(colorPrimary). // Global color
+		Foreground(colorPrimary).
 		Bold(true)
 
 	urlStyle := lipgloss.NewStyle().
 		Width(50).
 		PaddingRight(2).
-		Foreground(colorSecondary) // Global color
+		Foreground(colorSecondary)
 
 	freqStyle := lipgloss.NewStyle().
 		Width(6).
 		Align(lipgloss.Right).
-		Foreground(colorSecondary) // Global color
+		Foreground(colorSecondary)
 
 	header := lipgloss.JoinHorizontal(
 		lipgloss.Left,
@@ -921,7 +916,7 @@ func (m model) packageView(title string) string {
 	s.WriteString(
 		lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(colorSecondary). // Global color
+			BorderForeground(colorSecondary).
 			Render(header),
 	)
 	s.WriteRune('\n')
@@ -929,7 +924,7 @@ func (m model) packageView(title string) string {
 	if len(m.filtered) == 0 {
 		s.WriteString(
 			lipgloss.NewStyle().
-				Foreground(colorSecondary). // Global color
+				Foreground(colorSecondary).
 				Render("  No packages found."),
 		)
 		s.WriteRune('\n')
@@ -965,13 +960,13 @@ func (m model) packageView(title string) string {
 		rowStyle := lipgloss.NewStyle().Width(94)
 
 		if _, ok := m.selected[pkg]; ok {
-			rowStyle = rowStyle.Foreground(colorSelected) // Global color
+			rowStyle = rowStyle.Foreground(colorSelected)
 		}
 
 		if m.cursorPackage == i {
 			rowStyle = rowStyle.
-				Background(colorCursorBg). // Global color
-				Foreground(colorCursorFg)  // Global color
+				Background(colorCursorBg).
+				Foreground(colorCursorFg)
 		}
 
 		row = rowStyle.Render(row)
@@ -999,11 +994,9 @@ func (m *model) updateFocus() {
 	for i := 0; i < len(m.inputs); i++ {
 		if i == m.focusIndex {
 			m.inputs[i].Focus()
-			// Updated to use global colorPrimary
 			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(colorPrimary)
 		} else {
 			m.inputs[i].Blur()
-			// Updated to use global colorSecondary
 			m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(colorSecondary)
 		}
 	}
@@ -1034,6 +1027,26 @@ func (m *model) resetForm() {
 	m.installFlag = false
 	m.forceFlag = false
 	m.updateFocus()
+}
+
+func deletePackageCmd(ctx context.Context, queries *data.Queries, group data.Group) tea.Cmd {
+	return func() tea.Msg {
+		if err := service.DeleteGroup(context.Background(), queries, group); err != nil {
+			return deletePackageMsg{
+				err: err,
+				msg: "error deleting group",
+			}
+		}
+		return deletePackageMsg{
+			err: nil,
+			msg: "Group deleted successfully",
+		}
+	}
+}
+
+type deletePackageMsg struct {
+	err error
+	msg string
 }
 
 func installPackagesCmd(pkgs []string) tea.Cmd {
